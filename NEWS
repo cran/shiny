@@ -1,0 +1,153 @@
+shiny 0.2.3
+--------------------------------------------------------------------------------
+
+* Ignore request variables for routing purposes
+
+
+shiny 0.2.2
+--------------------------------------------------------------------------------
+
+* Fix CRAN warning (assigning to global environment)
+
+
+shiny 0.2.1
+--------------------------------------------------------------------------------
+
+* [BREAKING] Modify API of `downloadHandler`: The `content` function now takes
+  a file path, not writable connection, as an argument. This makes it much
+  easier to work with APIs that only write to file paths, not connections.
+
+
+shiny 0.2.0
+--------------------------------------------------------------------------------
+
+* Fix subtle name resolution bug--the usual symptom being S4 methods not being
+  invoked correctly when called from inside of ui.R or server.R
+
+
+shiny 0.1.14
+--------------------------------------------------------------------------------
+
+* Fix slider animator, which broke in 0.1.10
+
+
+shiny 0.1.13
+--------------------------------------------------------------------------------
+
+* Fix temp file leak in reactivePlot
+
+
+shiny 0.1.12
+--------------------------------------------------------------------------------
+
+* Fix problems with runGist on Windows
+* Add feature for on-the-fly file downloads (e.g. CSV data, PDFs)
+* Add CSS hooks for app-wide busy indicators
+
+
+shiny 0.1.11
+--------------------------------------------------------------------------------
+
+* Fix input binding with IE8 on Shiny Server
+* Fix issue #41: reactiveTable should allow print options too
+* Allow dynamic sizing of reactivePlot (i.e. using a function instead of a fixed
+  value)
+
+
+shiny 0.1.10
+--------------------------------------------------------------------------------
+
+* Support more MIME types when serving out of www
+* Fix issue #35: Allow modification of untar args
+* headerPanel can take an explicit window title parameter
+* checkboxInput uses correct attribute `checked` instead of `selected`
+* Fix plot rendering with IE8 on Shiny Server
+
+
+shiny 0.1.9
+--------------------------------------------------------------------------------
+
+* Much less flicker when updating plots
+* More customizable error display
+* Add `includeText`, `includeHTML`, and `includeMarkdown` functions for putting
+  text, HTML, and Markdown content from external files in the application's UI.
+
+
+shiny 0.1.8
+--------------------------------------------------------------------------------
+
+* Add `runGist` function for conveniently running a Shiny app that is published
+  on gist.github.com.
+* Fix issue #27: Warnings cause reactive functions to stop executing.
+* The server.R and ui.R filenames are now case insensitive.
+* Add `wellPanel` function for creating inset areas on the page.
+* Add `bootstrapPage` function for creating new Twitter Bootstrap based
+  layouts from scratch.
+
+
+shiny 0.1.7
+--------------------------------------------------------------------------------
+
+* Fix issue #26: Shiny.OutputBindings not correctly exported.
+* Add `repeatable` function for making easily repeatable versions of random
+  number generating functions.
+* Transcode JSON into UTF-8 (prevents non-ASCII reactivePrint values from
+  causing errors on Windows).
+
+
+shiny 0.1.6
+--------------------------------------------------------------------------------
+
+* Import package dependencies, instead of attaching them (with the exception of
+  websockets, which doesn't currently work unless attached).
+* conditionalPanel was animated, now it is not.
+* bindAll was not correctly sending initial values to the server; fixed.
+
+
+shiny 0.1.5
+--------------------------------------------------------------------------------
+
+* BREAKING CHANGE: JS APIs Shiny.bindInput and Shiny.bindOutput removed and
+  replaced with Shiny.bindAll; Shiny.unbindInput and Shiny.unbindOutput removed
+  and replaced with Shiny.unbindAll.
+* Add file upload support (currently only works with Chrome and Firefox). Use
+  a normal HTML file input, or call the `fileInput` UI function.
+* Shiny.unbindOutputs did not work, now it does.
+* Generally improved robustness of dynamic input/output bindings.
+* Add conditionalPanel UI function to allow showing/hiding UI based on a JS
+  expression; for example, whether an input is a particular value. Also works in
+  raw HTML (add the `data-display-if` attribute to the element that should be
+  shown/hidden).
+* htmlOutput (CSS class `shiny-html-output`) can contain inputs and outputs.
+
+
+shiny 0.1.4
+--------------------------------------------------------------------------------
+
+* Allow Bootstrap tabsets to act as reactive inputs; their value indicates which
+  tab is active
+* Upgrade to Bootstrap 2.1
+* Add `checkboxGroupInput` control, which presents a list of checkboxes and
+  returns a vector of the selected values
+* Add `addResourcePath`, intended for reusable component authors to access CSS,
+  JavaScript, image files, etc. from their package directories
+* Add Shiny.bindInputs(scope), .unbindInputs(scope), .bindOutputs(scope), and
+  .unbindOutputs(scope) JS API calls to allow dynamic binding/unbinding of HTML
+  elements
+
+
+shiny 0.1.3
+--------------------------------------------------------------------------------
+
+* Introduce Shiny.inputBindings.register JS API and InputBinding class, for
+  creating custom input controls
+* Add `step` parameter to numericInput
+* Read names of input using `names(input)`
+* Access snapshot of input as a list using `as.list(input)` 
+* Fix issue #10: Plots in tabsets not rendered
+
+
+shiny 0.1.2
+--------------------------------------------------------------------------------
+
+Initial private beta release!
