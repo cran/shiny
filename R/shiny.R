@@ -147,7 +147,8 @@ ShinyApp <- setRefClass(
     },
     .write = function(json) {
       if (getOption('shiny.trace', FALSE))
-        message('SEND ', json)
+        message('SEND ', 
+           gsub('(?m)base64,[a-zA-Z0-9+/=]+','[base64 data]',json,perl=TRUE))
       if (getOption('shiny.transcode.json', TRUE))
         json <- iconv(json, to='UTF-8')
       websocket_write(json, .websocket)
@@ -952,13 +953,9 @@ runGist <- function(gist,
                                              interactive())) {
 
   gistUrl <- if (is.numeric(gist) || grepl('^[0-9a-f]+$', gist)) {
-    sprintf('https://gist.github.com/gists/%s/download', gist)
+    sprintf('https://gist.github.com/%s/download', gist)
   } else if(grepl('^https://gist.github.com/([0-9a-f]+)$', gist)) {
-    paste(sub('https://gist.github.com/',
-              'https://gist.github.com/gists/',
-              gist),
-          '/download',
-          sep='')
+    paste(gist, '/download', sep='')
   } else {
     stop('Unrecognized gist identifier format')
   }
