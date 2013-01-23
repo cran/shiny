@@ -401,25 +401,26 @@ checkboxInput <- function(inputId, label, value = FALSE) {
 checkboxGroupInput <- function(inputId, label, choices, selected = NULL) {
   # resolve names
   choices <- choicesWithNames(choices)
-  
-  checkboxes <- list()
-  for (i in seq_along(choices)) {
-    choiceName <- names(choices)[i]
 
-    inputTag <- tags$input(type = "checkbox",
-                           name = inputId,
-                           id = paste(inputId, i, sep=""),
-                           value = choices[[i]])
+  # Create tags for each of the options
+  ids <- paste0(inputId, seq_along(choices))
 
-    if (choiceName %in% selected)
+  checkboxes <- mapply(ids, choices, names(choices),
+    SIMPLIFY = FALSE, USE.NAMES = FALSE,
+    FUN = function(id, value, name) {
+      inputTag <- tags$input(type = "checkbox",
+                             name = inputId,
+                             id = id,
+                             value = value)
+
+    if (name %in% selected)
       inputTag$attribs$checked <- "checked"
 
-    checkbox <- tags$label(class = "checkbox",
-                           inputTag,
-                           tags$span(choiceName))
-    
-    checkboxes[[i]] <- checkbox
-  } 
+    tags$label(class = "checkbox",
+               inputTag,
+               tags$span(name))
+    }
+  )
   
   # return label and select tag
   tags$div(id = inputId,
@@ -507,16 +508,21 @@ selectInput <- function(inputId,
   if (multiple)
     selectTag$attribs$multiple <- "multiple"
 
-  for (i in seq_along(choices)) {
-    choiceName <- names(choices)[i]
-    optionTag <- tags$option(value = choices[[i]], choiceName)
+  # Create tags for each of the options
+  optionTags <- mapply(choices, names(choices),
+    SIMPLIFY = FALSE, USE.NAMES = FALSE,
+    FUN = function(choice, name) {
+      optionTag <- tags$option(value = choice, name)
 
-    if (choiceName %in% selected)
-      optionTag$attribs$selected = "selected"
+      if (name %in% selected)
+        optionTag$attribs$selected = "selected"
 
-    selectTag <- tagAppendChild(selectTag, optionTag)
-  }
-  
+      optionTag
+    }
+  )
+
+  selectTag <- tagSetChildren(selectTag, list = optionTags)
+
   # return label and select tag
   tagList(controlLabel(inputId, label), selectTag)
 }
@@ -550,27 +556,28 @@ radioButtons <- function(inputId, label, choices, selected = NULL) {
   if (is.null(selected))
     selected <- names(choices)[[1]]
   
-  # build list of radio button tags
-  inputTags <- list()
-  for (i in seq_along(choices)) {
-    id <- paste(inputId, i, sep="")
-    name <- names(choices)[[i]]
-    value <- choices[[i]]
-    inputTag <- tags$input(type = "radio", 
-                           name = inputId,
-                           id = id,
-                           value = value)
-    if (identical(name, selected))
-      inputTag$attribs$checked = "checked"
+  # Create tags for each of the options
+  ids <- paste0(inputId, seq_along(choices))
 
-    # Put the label text in a span
-    spanTag <- tags$span(name)
-    labelTag <- tags$label(class = "radio")
-    labelTag <- tagAppendChild(labelTag, inputTag)
-    labelTag <- tagAppendChild(labelTag, spanTag)
-    inputTags[[length(inputTags) + 1]] <- labelTag
-  }
-  
+  inputTags <- mapply(ids, choices, names(choices),
+    SIMPLIFY = FALSE, USE.NAMES = FALSE,
+    FUN = function(id, value, name) {
+      inputTag <- tags$input(type = "radio",
+                             name = inputId,
+                             id = id,
+                             value = value)
+
+      if (identical(name, selected))
+        inputTag$attribs$checked = "checked"
+
+      # Put the label text in a span
+      tags$label(class = "radio",
+                inputTag,
+                tags$span(name)
+      )
+    }
+  )
+
   tags$div(id = inputId,
            class = 'control-group shiny-input-radiogroup',
            tags$label(class = "control-label", `for` = inputId, label),
@@ -619,8 +626,10 @@ actionButton <- function(inputId, label) {
 #' @param label A descriptive label to be displayed with the widget.
 #' @param min The minimum value (inclusive) that can be selected.
 #' @param max The maximum value (inclusive) that can be selected.
-#' @param value The initial value of the slider. A warning will be issued if the
-#'   value doesn't fit between \code{min} and \code{max}.
+#' @param value The initial value of the slider. A numeric vector of length
+#'   one will create a regular slider; a numeric vector of length two will
+#'   create a double-ended range slider.. A warning will be issued if the
+#'   value doesn't fit between \code{min} and \code{max}. 
 #' @param step Specifies the interval between each selectable value on the 
 #'   slider (\code{NULL} means no restriction).
 #' @param round \code{TRUE} to round all values to the nearest integer; 
@@ -1009,6 +1018,8 @@ tabsetPanel <- function(..., id = NULL, selected = NULL) {
       firstTab = FALSE
     }
     
+    divTag$attribs$title <- NULL
+
     # append the elements to our lists
     tabNavList <- tagAppendChild(tabNavList, liTag)
     tabContent <- tagAppendChild(tabContent, divTag)
@@ -1084,6 +1095,24 @@ imageOutput <- function(outputId, width = "100%", height="400px") {
 #'   \code{"400px"}, \code{"auto"}) or a number, which will be coerced to a
 #'   string and have \code{"px"} appended.
 #' @param height Plot height
+#' @param clickId If not \code{NULL}, the plot will send coordinates to the
+#'   server whenever it is clicked. This information will be accessible on the 
+#'   \code{input} object using \code{input$}\emph{\code{clickId}}. The value will be a
+#'   named list or vector with \code{x} and \code{y} elements indicating the
+#'   mouse position in user units.
+#' @param hoverId If not \code{NULL}, the plot will send coordinates to the
+#'   server whenever the mouse pauses on the plot for more than the number of
+#'   milliseconds determined by \code{hoverTimeout}. This information will be
+#    accessible on the \code{input} object using \code{input$}\emph{\code{clickId}}.
+#'   The value will be \code{NULL} if the user is not hovering, and a named
+#'   list or vector with \code{x} and \code{y} elements indicating the mouse
+#'   position in user units.
+#' @param hoverDelay The delay for hovering, in milliseconds.
+#' @param hoverDelayType The type of algorithm for limiting the number of hover 
+#'   events. Use \code{"throttle"} to limit the number of hover events to one
+#'   every \code{hoverDelay} milliseconds. Use \code{"debounce"} to suspend
+#'   events while the cursor is moving, and wait until the cursor has been at
+#'   rest for \code{hoverDelay} milliseconds before sending an event.
 #' @return A plot output element that can be included in a panel
 #' @examples
 #' # Show a plot of the generated distribution
@@ -1091,10 +1120,23 @@ imageOutput <- function(outputId, width = "100%", height="400px") {
 #'   plotOutput("distPlot")
 #' )
 #' @export
-plotOutput <- function(outputId, width = "100%", height="400px") {
+plotOutput <- function(outputId, width = "100%", height="400px",
+                       clickId = NULL, hoverId = NULL, hoverDelay = 300,
+                       hoverDelayType = c("debounce", "throttle")) {
+  if (is.null(clickId) && is.null(hoverId)) {
+    hoverDelay <- NULL
+    hoverDelayType <- NULL
+  } else {
+    hoverDelayType <- match.arg(hoverDelayType)[[1]]
+  }
+  
   style <- paste("width:", validateCssUnit(width), ";",
     "height:", validateCssUnit(height))
-  div(id = outputId, class = "shiny-plot-output", style = style)
+  div(id = outputId, class = "shiny-plot-output", style = style,
+      `data-click-id` = clickId,
+      `data-hover-id` = hoverId,
+      `data-hover-delay` = hoverDelay,
+      `data-hover-delay-type` = hoverDelayType)
 }
 
 #' Create a table output element
@@ -1184,6 +1226,16 @@ downloadLink <- function(outputId, label="Download", class=NULL) {
          label)
 }
 
+#' Validate proper CSS formatting of a unit
+#' 
+#' @param x The unit to validate. Will be treated as a number of pixels if a 
+#' unit is not specified.
+#' @return A properly formatted CSS unit of length, if possible. Otherwise, will
+#' throw an error.
+#' @examples
+#' validateCssUnit("10%")
+#' validateCssUnit(400)  #treated as '400px'
+#' @export
 validateCssUnit <- function(x) {
   if (is.character(x) &&
      !grepl("^(auto|((\\.\\d+)|(\\d+(\\.\\d+)?))(%|in|cm|mm|em|ex|pt|pc|px))$", x)) {
