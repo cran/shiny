@@ -57,6 +57,13 @@
     }
   }
 
+  function pixelRatio() {
+    if (window.devicePixelRatio) {
+      return window.devicePixelRatio;
+    } else {
+      return 1;
+    }
+  }
 
   // Takes a string expression and returns a function that takes an argument.
   // 
@@ -69,6 +76,10 @@
     };
   }
 
+
+  // =========================================================================
+  // Input rate stuff
+  // =========================================================================
 
   var Invoker = function(target, func) {
     this.target = target;
@@ -376,6 +387,9 @@
   }
 
 
+  // =========================================================================
+  // ShinyApp
+  // =========================================================================
   var ShinyApp = function() {
     this.$socket = null;
 
@@ -405,7 +419,7 @@
 
       $.extend(initialInput, {
         // IE8 and IE9 have some limitations with data URIs
-        "__allowDataUriScheme": typeof WebSocket !== 'undefined'
+        ".clientdata_allowDataUriScheme": typeof WebSocket !== 'undefined'
       });
 
       this.$socket = this.createSocket();
@@ -480,8 +494,7 @@
     //   response, the function will be called with it as the only argument.
     // @param onError A function that will be called back if the server
     //   responds with error, or if the request fails for any other reason.
-    //   The parameter to onError will be an error object or message (format
-    //   TBD).
+    //   The parameter to onError will be a string describing the error.
     // @param blobs Optionally, an array of Blob, ArrayBuffer, or string
     //   objects that will be made available to the server as part of the
     //   request. Strings will be encoded using UTF-8.
@@ -589,7 +602,8 @@
       }
       if (msgObj.console) {
         for (var i = 0; i < msgObj.console.length; i++) {
-          console.log(msgObj.console[i]);
+          if (console.log)
+            console.log(msgObj.console[i]);
         }
       }
       if (msgObj.progress) {
@@ -673,24 +687,21 @@
   }).call(ShinyApp.prototype);
 
 
+  // =========================================================================
+  // File Processor
+  // =========================================================================
+
   // Generic driver class for doing chunk-wise asynchronous processing of a
   // FileList object. Subclass/clone it and override the `on*` functions to
   // make it do something useful.
   var FileProcessor = function(files) {
     this.files = files;
-    this.fileReader = new FileReader();
     this.fileIndex = -1;
-    this.pos = 0;
     // Currently need to use small chunk size because R-Websockets can't
     // handle continuation frames
-    this.chunkSize = 4096;
     this.aborted = false;
     this.completed = false;
     
-    var self = this;
-    $(this.fileReader).on('load', function(evt) {
-      self.$endReadChunk();
-    });
     // TODO: Register error/abort callbacks
     
     this.$run();
@@ -700,13 +711,7 @@
     this.onBegin = function(files, cont) {
       setTimeout(cont, 0);
     };
-    this.onFileBegin = function(file, cont) {
-      setTimeout(cont, 0);
-    };
-    this.onFileChunk = function(file, offset, blob, cont) {
-      setTimeout(cont, 0);
-    };
-    this.onFileEnd = function(file, cont) {
+    this.onFile = function(file, cont) {
       setTimeout(cont, 0);
     };
     this.onComplete = function() {
@@ -763,49 +768,15 @@
       // in the middle of processing a file, or have just finished
       // processing a file.
       
-      var file = this.files[this.fileIndex];
-      if (this.pos >= file.size) {
-        // We've read past the end of this file--it's done
-        this.fileIndex++;
-        this.pos = 0;
-        this.onFileEnd(file, this.$getRun());
-      }
-      else if (this.pos == 0) {
-        // We're just starting with this file, need to call onFileBegin
-        // before we actually start reading
-        var called = false;
-        this.onFileBegin(file, function() {
-          if (called)
-            return;
-          called = true;
-          self.$beginReadChunk();
-        });
-      }
-      else {
-        // We're neither starting nor ending--just start the next chunk
-        this.$beginReadChunk();
-      }
-    };
-    
-    // Starts asynchronous read of the current chunk of the current file
-    this.$beginReadChunk = function() {
-      var file = this.files[this.fileIndex];
-      var blob = slice(file, this.pos, this.pos + this.chunkSize);
-      this.fileReader.readAsArrayBuffer(blob);
-    };
-    
-    // Called when a chunk has been successfully read
-    this.$endReadChunk = function() {
-      var file = this.files[this.fileIndex];
-      var offset = this.pos;
-      var data = this.fileReader.result;
-      this.pos = this.pos + this.chunkSize;
-      this.onFileChunk(file, offset, makeBlob([data]),
-                       this.$getRun());
+      var file = this.files[this.fileIndex++];
+      this.onFile(file, this.$getRun());
     };
   }).call(FileProcessor.prototype);
 
 
+  // =========================================================================
+  // Binding registry
+  // =========================================================================
   var BindingRegistry = function() {
     this.bindings = [];
     this.bindingNames = {};
@@ -844,6 +815,9 @@
   var inputBindings = exports.inputBindings = new BindingRegistry();
   var outputBindings = exports.outputBindings = new BindingRegistry();
 
+  // =========================================================================
+  // Output bindings
+  // =========================================================================
   
   var OutputBinding = exports.OutputBinding = function() {};
   (function() {
@@ -889,17 +863,20 @@
   });
   outputBindings.register(textOutputBinding, 'shiny.textOutput');
 
-  var plotOutputBinding = new OutputBinding();
-  $.extend(plotOutputBinding, {
+  var imageOutputBinding = new OutputBinding();
+  $.extend(imageOutputBinding, {
     find: function(scope) {
-      return $(scope).find('.shiny-plot-output');
+      return $(scope).find('.shiny-image-output, .shiny-plot-output');
     },
     renderValue: function(el, data) {
       // Load the image before emptying, to minimize flicker
       var img = null;
       if (data) {
         img = document.createElement('img');
-        img.src = data;
+        // Copy items from data to img. This should include 'src'
+        $.each(data, function(key, value) {
+          img[key] = value;
+        })
       }
 
       $(el).empty();
@@ -907,12 +884,16 @@
         $(el).append(img);
     }
   });
-  outputBindings.register(plotOutputBinding, 'shiny.plotOutput');
+  outputBindings.register(imageOutputBinding, 'shiny.imageOutput');
 
   var htmlOutputBinding = new OutputBinding();
   $.extend(htmlOutputBinding, {
     find: function(scope) {
       return $(scope).find('.shiny-html-output');
+    },
+    onValueError: function(el, err) {
+      exports.unbindAll(el);
+      this.renderError(el, err);
     },
     renderValue: function(el, data) {
       exports.unbindAll(el);
@@ -933,6 +914,9 @@
   })
   outputBindings.register(downloadLinkOutputBinding, 'shiny.downloadLink');
 
+  // =========================================================================
+  // Input bindings
+  // =========================================================================
 
   var InputBinding = exports.InputBinding = function() {
   };
@@ -1143,59 +1127,115 @@
     };
     this.onBegin = function(files, cont) {
       var self = this;
-      this.makeRequest(
-        'uploadInit', [],
-        function(response) {
-          self.jobId = response.jobId;
-          cont();
-        },
-        function(error) {
-        });
-    };
-    this.onFileBegin = function(file, cont) {
-      this.onProgress(file, 0);
-      
-      this.makeRequest(
-        'uploadFileBegin', [this.jobId, file.name, file.type, file.size],
-        function(response) {
-          cont();
-        },
-        function(error) {
-        });
-    };
-    this.onFileChunk = function(file, offset, blob, cont) {
-      this.onProgress(file, (offset + blob.size) / file.size);
+
+      // Reset progress bar
+      this.$setError(null);
+      this.$setActive(true);
+      this.$setVisible(true);
+      this.onProgress(null, 0);
+
+      this.totalBytes = 0;
+      this.progressBytes = 0;
+      $.each(files, function(i, file) {
+        self.totalBytes += file.size;
+      });
+
+      var fileInfo = $.map(files, function(file, i) {
+        return {
+          name: file.name,
+          size: file.size,
+          type: file.type
+        };
+      });
 
       this.makeRequest(
-        'uploadFileChunk', [this.jobId],
+        'uploadInit', [fileInfo],
         function(response) {
+          self.jobId = response.jobId;
+          self.uploadUrl = response.uploadUrl;
           cont();
         },
         function(error) {
-        },
-        [blob]);
-    };
-    this.onFileEnd = function(file, cont) {
-      this.makeRequest(
-        'uploadFileEnd', [this.jobId],
-        function(response) {
-          cont();
-        },
-        function(error) {
+          self.onError(error);
         });
     };
+    this.onFile = function(file, cont) {
+      var self = this;
+      this.onProgress(file, 0);
+
+      $.ajax(this.uploadUrl, {
+        type: 'POST',
+        cache: false,
+        xhr: function() {
+          var xhrVal = $.ajaxSettings.xhr();
+          if (xhrVal.upload) {
+            xhrVal.upload.onprogress = function(e) {
+              if (e.lengthComputable) {
+                self.onProgress(
+                  file,
+                  (self.progressBytes + e.loaded) / self.totalBytes);
+              }
+            }
+          }
+          return xhrVal;
+        },
+        data: file,
+        processData: false,
+        success: function() {
+          self.progressBytes += file.size;
+          cont();
+        },
+        error: function(jqXHR, textStatus, errorThrown) {
+          self.onError(jqXHR.responseText || textStatus);
+        }
+      });
+    };
     this.onComplete = function() {
+      var self = this;
       this.makeRequest(
         'uploadEnd', [this.jobId, this.id], 
         function(response) {
+          self.$setActive(false);
+          self.onProgress(null, 1);
+          self.$label().text('Upload complete');
         },
         function(error) {
+          self.onError(error);
         });
+      this.$label().text('Finishing upload');
+    };
+    this.onError = function(message) {
+      this.$setError(message || '');
+      this.$setActive(false);
     };
     this.onAbort = function() {
+      this.$setVisible(false);
     };
     this.onProgress = function(file, completed) {
-      console.log('file: ' + file.name + ' [' + Math.round(completed*100) + '%]');
+      this.$bar().width(Math.round(completed*100) + '%');
+      this.$label().text(file ? file.name : '');
+    };
+    this.$container = function() {
+      return $('#' + this.id + '_progress.shiny-file-input-progress');
+    };
+    this.$bar = function() {
+      return $('#' + this.id + '_progress.shiny-file-input-progress .bar');
+    };
+    this.$label = function() {
+      return $('#' + this.id + '_progress.shiny-file-input-progress label');
+    };
+    this.$setVisible = function(visible) {
+      this.$container().css('visibility', visible ? 'visible' : 'hidden');
+    };
+    this.$setError = function(error) {
+      this.$bar().toggleClass('bar-danger', (error !== null));
+      if (error !== null) {
+        this.onProgress(null, 1);
+        this.$label().text(error);
+      }
+    };
+    this.$setActive = function(active) {
+      this.$container().toggleClass('active', !!active);
     };
   }).call(FileUploader.prototype);
 
@@ -1209,6 +1249,9 @@
 
     var files = evt.target.files;
     var id = fileInputBinding.getId(evt.target);
+
+    if (files.length == 0)
+      return;
 
     // Start the new upload and put the uploader in 'currentUploader'.
     el.data('currentUploader', new FileUploader(exports.shinyapp, id, files));
@@ -1255,6 +1298,9 @@
   }).call(OutputBindingAdapter.prototype);
 
 
+  // =========================================================================
+  // initShiny
+  // =========================================================================
   function initShiny() {
 
     var shinyapp = exports.shinyapp = new ShinyApp();
@@ -1287,7 +1333,7 @@
       }
 
       // Send later in case DOM layout isn't final yet.
-      setTimeout(sendPlotSize, 0);
+      setTimeout(sendImageSize, 0);
       setTimeout(sendOutputHiddenState, 0);
     }
 
@@ -1317,8 +1363,10 @@
     var inputsRate = new InputRateDecorator(inputsNoResend);
     var inputsDefer = new InputDeferDecorator(inputsNoResend);
 
+    // By default, use rate decorator
     inputs = inputsRate;
     $('input[type="submit"], button[type="submit"]').each(function() {
+      // If there is a submit button on the page, use defer decorator
       inputs = inputsDefer;
       $(this).click(function(event) {
         event.preventDefault();
@@ -1498,50 +1546,82 @@
     var initialValues = _bindAll(document);
 
 
-    // The server needs to know the size of each plot output element, in case
-    // the plot is auto-sizing
-    $('.shiny-plot-output').each(function() {
+    // The server needs to know the size of each image and plot output element,
+    // in case it is auto-sizing
+    $('.shiny-image-output, .shiny-plot-output').each(function() {
       if (this.offsetWidth !== 0 || this.offsetHeight !== 0) {
-        initialValues['.shinyout_' + this.id + '_width'] = this.offsetWidth;
-        initialValues['.shinyout_' + this.id + '_height'] = this.offsetHeight;
+        initialValues['.clientdata_output_' + this.id + '_width'] = this.offsetWidth;
+        initialValues['.clientdata_output_' + this.id + '_height'] = this.offsetHeight;
       }
     });
-    function sendPlotSize() {
-      $('.shiny-plot-output').each(function() {
+    function sendImageSize() {
+      $('.shiny-image-output, .shiny-plot-output').each(function() {
         if (this.offsetWidth !== 0 || this.offsetHeight !== 0) {
-          inputs.setInput('.shinyout_' + this.id + '_width', this.offsetWidth);
-          inputs.setInput('.shinyout_' + this.id + '_height', this.offsetHeight);
+          inputs.setInput('.clientdata_output_' + this.id + '_width', this.offsetWidth);
+          inputs.setInput('.clientdata_output_' + this.id + '_height', this.offsetHeight);
         }
       });
     }
 
+    // Return true if the object or one of its ancestors in the DOM tree has
+    // style='display:none'; otherwise return false.
+    function isHidden(obj) {
+      // null means we've hit the top of the tree. If width or height is
+      // non-zero, then we know that no ancestor has display:none.
+      if (obj === null || obj.offsetWidth !== 0 || obj.offsetHeight !== 0) {
+        return false;
+      } else if (getComputedStyle(obj, null).display === 'none') {
+        return true;
+      } else {
+        return(isHidden(obj.parentNode));
+      }
+    }
     // Set initial state of outputs to hidden, if needed
     $('.shiny-bound-output').each(function() {
-      if (this.offsetWidth === 0 && this.offsetHeight === 0) {
-        initialValues['.shinyout_' + this.id + '_hidden'] = true;
+      if (isHidden(this)) {
+        initialValues['.clientdata_output_' + this.id + '_hidden'] = true;
       } else {
-        initialValues['.shinyout_' + this.id + '_hidden'] = false;
+        initialValues['.clientdata_output_' + this.id + '_hidden'] = false;
       }
     });
     // Send update when hidden state changes
     function sendOutputHiddenState() {
       $('.shiny-bound-output').each(function() {
         // Assume that the object is hidden when width and height are 0
-        if (this.offsetWidth === 0 && this.offsetHeight === 0) {
-          inputs.setInput('.shinyout_' + this.id + '_hidden', true);
+        if (isHidden(this)) {
+          inputs.setInput('.clientdata_output_' + this.id + '_hidden', true);
         } else {
-          inputs.setInput('.shinyout_' + this.id + '_hidden', false);
+          inputs.setInput('.clientdata_output_' + this.id + '_hidden', false);
         }
       });
     }
-    // The size of each plot may change either because the browser window was
+
+    // The size of each image may change either because the browser window was
     // resized, or because a tab was shown/hidden (hidden elements report size
     // of 0x0). It's OK to over-report sizes because the input pipeline will
     // filter out values that haven't changed.
-    $(window).resize(debounce(500, sendPlotSize));
-    $('body').on('shown.sendPlotSize', '*', sendPlotSize);
+    $(window).resize(debounce(500, sendImageSize));
+    $('body').on('shown.sendImageSize', '*', sendImageSize);
     $('body').on('shown.sendOutputHiddenState hidden.sendOutputHiddenState', '*',
                  sendOutputHiddenState);
+
+    // Send initial pixel ratio, and update it if it changes
+    initialValues['.clientdata_pixelratio'] = pixelRatio();
+    $(window).resize(function() {
+      inputs.setInput('.clientdata_pixelratio', pixelRatio());
+    });
+
+    // Send initial URL
+    initialValues['.clientdata_url_protocol'] = window.location.protocol;
+    initialValues['.clientdata_url_hostname'] = window.location.hostname;
+    initialValues['.clientdata_url_port']     = window.location.port;
+    initialValues['.clientdata_url_pathname'] = window.location.pathname;
+    initialValues['.clientdata_url_search']   = window.location.search;
+    // This is only the initial value of the hash. The hash can change, but
+    // a reactive version of this isn't sent because w atching for changes can
+    // require polling on some browsers. The JQuery hashchange plugin can be
+    // used if this capability is important.
+    initialValues['.clientdata_url_hash_initial'] = window.location.hash;
 
     // We've collected all the initial values--start the server process!
     inputsNoResend.reset(initialValues);
