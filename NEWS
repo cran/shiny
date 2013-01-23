@@ -1,3 +1,41 @@
+shiny 0.6.0
+--------------------------------------------------------------------------------
+
+* `tabsetPanel()` can be directed to start with a specific tab selected.
+
+* Fix bug where multiple file uploads with 3 or more files result in incorrect
+  data.
+
+* Add `withTags()` function.
+
+* Add dateInput and dateRangeInput.
+
+* `shinyServer()` now takes an optional `session` argument, which is used for
+  communication with the session object.
+
+* Add functions to update values of existing inputs on a page, instead of
+  replacing them entirely.
+
+* Allow listening on domain sockets.
+
+* Added `actionButton()` to Shiny.
+
+* The server can now send custom JSON messages to the client. On the client
+  side, functions can be registered to handle these messages.
+
+* Callbacks can be registered to be called at the end of a client session.
+
+* Add ability to set priority of observers and outputs. Each priority level
+  gets its own queue.
+
+* Fix bug where the presence of a submit button would prevent sending of
+  metadata until the button was clicked.
+
+* `reactiveTimer()` and `invalidateLater()` by default no longer invalidate
+  reactive objects after the client session has closed.
+
+* Shiny apps can be run without a server.r and ui.r file.
+
 shiny 0.5.0
 --------------------------------------------------------------------------------
 

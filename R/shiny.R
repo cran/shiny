@@ -18,24 +18,28 @@ ShinySession <- setRefClass(
     .websocket = 'ANY',
     .invalidatedOutputValues = 'Map',
     .invalidatedOutputErrors = 'Map',
+    .inputMessageQueue = 'list',    # A list of inputMessages to send when flushed
     .outputs = 'list',       # Keeps track of all the output observer objects
     .outputOptions = 'list', # Options for each of the output observer objects
     .progressKeys = 'character',
     .fileUploadContext = 'FileUploadContext',
     .input      = 'ReactiveValues', # Internal object for normal input sent from client
     .clientData = 'ReactiveValues', # Internal object for other data sent from the client
+    .closedCallbacks = 'Callbacks',
     input       = 'reactivevalues', # Externally-usable S3 wrapper object for .input
     clientData  = 'reactivevalues', # Externally-usable S3 wrapper object for .clientData
     token = 'character',  # Used to identify this instance in URLs
     files = 'Map',        # For keeping track of files sent to client
     downloads = 'Map',
-    closed = 'logical'
+    closed = 'logical',
+    session = 'list'      # Object for the server app to access session stuff
   ),
   methods = list(
     initialize = function(websocket) {
       .websocket <<- websocket
       .invalidatedOutputValues <<- Map$new()
       .invalidatedOutputErrors <<- Map$new()
+      .inputMessageQueue <<- list()
       .progressKeys <<- character(0)
       closed <<- FALSE
       # TODO: Put file upload context in user/app-specific dir if possible
@@ -50,12 +54,35 @@ ShinySession <- setRefClass(
       token <<- createUniqueId(16)
       .outputs <<- list()
       .outputOptions <<- list()
+
+      session <<- list(clientData        = clientData,
+                       sendCustomMessage = .self$.sendCustomMessage,
+                       sendInputMessage  = .self$.sendInputMessage,
+                       onSessionEnded    = .self$onSessionEnded,
+                       isClosed          = .self$isClosed)
+    },
+    onSessionEnded = function(callback) {
+      "Registers the given callback to be invoked when the session is closed
+      (i.e. the connection to the client has been severed). The return value
+      is a function which unregisters the callback. If multiple callbacks are
+      registered, the order in which they are invoked is not guaranteed."
+      return(.closedCallbacks$register(callback))
     },
     close = function() {
       closed <<- TRUE
       for (output in .outputs) {
         output$suspend()
       }
+      .closedCallbacks$invoke(onError=function(e) {
+        warning(simpleWarning(
+          paste("An error occurred in an onSessionEnded handler:",
+                e$message),
+          e$call
+        ))
+      })
+    },
+    isClosed = function() {
+      return(closed)
     },
     defineOutput = function(name, func, label) {
       "Binds an output generating function to this name. The function can either
@@ -96,24 +123,26 @@ ShinySession <- setRefClass(
           }
           else
             .invalidatedOutputValues$set(name, value)
-        }, label=label, suspended=TRUE)
+        }, label=label, suspended=.shouldSuspend(name))
         
         obs$onInvalidate(function() {
           showProgress(name)
         })
 
         .outputs[[name]] <<- obs
-        # Default is to suspend when hidden
-        .outputOptions[[name]][['suspendWhenHidden']] <<- TRUE
+        if (is.null(.outputOptions[[name]]))
+          .outputOptions[[name]] <<- list()
       }
       else {
         stop(paste("Unexpected", class(func), "output for", name))
       }
     },
     flushOutput = function() {
+
       if (length(.progressKeys) == 0
           && length(.invalidatedOutputValues) == 0
-          && length(.invalidatedOutputErrors) == 0) {
+          && length(.invalidatedOutputErrors) == 0
+          && length(.inputMessageQueue) == 0) {
         return(invisible())
       }
       
@@ -123,9 +152,12 @@ ShinySession <- setRefClass(
       .invalidatedOutputValues <<- Map$new()
       errors <- .invalidatedOutputErrors
       .invalidatedOutputErrors <<- Map$new()
+      inputMessages <- .inputMessageQueue
+      .inputMessageQueue <<- list()
       
       json <- toJSON(list(errors=as.list(errors),
-                          values=as.list(values)))
+                          values=as.list(values),
+                          inputMessages=inputMessages))
 
       .write(json)
     },
@@ -177,6 +209,17 @@ ShinySession <- setRefClass(
       if (is.null(requestMsg$tag))
         return()
       .write(toJSON(list(response=list(tag=requestMsg$tag, error=error))))
+    },
+    .sendCustomMessage = function(type, message) {
+      data <- list()
+      data[[type]] <- message
+      .write(toJSON(list(custom=data)))
+    },
+    .sendInputMessage = function(inputId, message) {
+      data <- list(id = inputId, message = message)
+
+      # Add to input message queue
+      .inputMessageQueue[[length(.inputMessageQueue) + 1]] <<- data
     },
     .write = function(json) {
       if (getOption('shiny.trace', FALSE))
@@ -353,25 +396,37 @@ ShinySession <- setRefClass(
                      URLencode(token, TRUE),
                      URLencode(name, TRUE)))
     },
+    .getOutputOption = function(outputName, propertyName, defaultValue) {
+      opts <- .outputOptions[[outputName]]
+      if (is.null(opts))
+        return(defaultValue)
+      result <- opts[[propertyName]]
+      if (is.null(result))
+        return(defaultValue)
+      return(result)
+    },
+    .shouldSuspend = function(name) {
+      # Find corresponding hidden state clientData variable, with the format
+      # "output_foo_hidden". (It comes from .clientdata_output_foo_hidden
+      # on the JS side)
+      # Some tricky stuff: instead of accessing names using input$names(),
+      # get the names directly via input$.values, to avoid triggering reactivity.
+      # Need to handle cases where the output object isn't actually used
+      # in the web page; in these cases, there's no output_foo_hidden flag,
+      # and hidden should be TRUE. In other words, NULL and TRUE should map to
+      # TRUE, FALSE should map to FALSE.
+      hidden <- .clientData$.values[[paste("output_", name, "_hidden",
+                                           sep="")]]
+      if (is.null(hidden)) hidden <- TRUE
+
+      return(hidden && .getOutputOption(name, 'suspendWhenHidden', TRUE))
+    },
     # This function suspends observers for hidden outputs and resumes observers
     # for un-hidden outputs.
     manageHiddenOutputs = function() {
       # Find hidden state for each output, and suspend/resume accordingly
       for (outputName in names(.outputs)) {
-        # Find corresponding hidden state clientData variable, with the format
-        # "output_foo_hidden". (It comes from .clientdata_output_foo_hidden
-        # on the JS side)
-        # Some tricky stuff: instead of accessing names using input$names(),
-        # get the names directly via input$.values, to avoid triggering reactivity.
-        # Need to handle cases where the output object isn't actually used
-        # in the web page; in these cases, there's no output_foo_hidden flag,
-        # and hidden should be TRUE. In other words, NULL and TRUE should map to
-        # TRUE, FALSE should map to FALSE.
-        hidden <- .clientData$.values[[paste("output_", outputName, "_hidden",
-                                             sep="")]]
-        if (is.null(hidden)) hidden <- TRUE
-
-        if (hidden && .outputOptions[[outputName]][['suspendWhenHidden']]) {
+        if (.shouldSuspend(outputName)) {
           .outputs[[outputName]]$suspend()
         } else {
           .outputs[[outputName]]$resume()
@@ -407,7 +462,7 @@ ShinySession <- setRefClass(
         return(.outputOptions[[name]])
 
       # Set the appropriate option
-      validOpts <- "suspendWhenHidden"
+      validOpts <- c("suspendWhenHidden", "priority")
       for (optname in names(opts)) {
         if (! optname %in% validOpts)
           stop(optname, " is not a valid option")
@@ -418,6 +473,10 @@ ShinySession <- setRefClass(
       # If any changes to suspendWhenHidden, need to re-run manageHiddenOutputs
       if ("suspendWhenHidden" %in% names(opts)) {
         manageHiddenOutputs()
+      }
+      
+      if ("priority" %in% names(opts)) {
+        .outputs[[name]]$setPriority(opts[['priority']])
       }
 
       invisible()
@@ -464,6 +523,8 @@ ShinySession <- setRefClass(
 #'     will be suspended (not execute) when it is hidden on the web page. When
 #'     \code{FALSE}, the output object will not suspend when hidden, and if it
 #'     was already hidden and suspended, then it will resume immediately.
+#'   \item priority. The priority level of the output object. Queued outputs
+#'     with higher priority values will execute before those with lower values.
 #' }
 #'
 #' @examples
@@ -473,6 +534,9 @@ ShinySession <- setRefClass(
 #'
 #' # Disable suspend for output$myplot
 #' outputOptions(output, "myplot", suspendWhenHidden = FALSE)
+#' 
+#' # Change priority for output$myplot
+#' outputOptions(output, "myplot", priority = 10)
 #'
 #' # Get the list of options for output$myplot
 #' outputOptions(output, "myplot")
@@ -765,7 +829,9 @@ resourcePathHandler <- function(req) {
 #' 
 #' The server function will be called when each client (web browser) first loads
 #' the Shiny application's page. It must take an \code{input} and an
-#' \code{output} parameter. Any return value will be ignored.
+#' \code{output} parameter. Any return value will be ignored. It also takes an
+#' optional \code{session} parameter, which is used when greater control is
+#' needed.
 #' 
 #' See the \href{http://rstudio.github.com/shiny/tutorial/}{tutorial} for more 
 #' on how to write a server function.
@@ -774,7 +840,7 @@ resourcePathHandler <- function(req) {
 #' \dontrun{
 #' # A very simple Shiny app that takes a message from the user
 #' # and outputs an uppercase version of it.
-#' shinyServer(function(input, output) {
+#' shinyServer(function(input, output, session) {
 #'   output$uppercase <- renderText({
 #'     toupper(input$message)
 #'   })
@@ -844,10 +910,7 @@ file.path.ci <- function(dir, name) {
 
 # Instantiates the app in the current working directory.
 # port - The TCP port that the application should listen on.
-startApp <- function(port=8101L) {
-
-  sys.www.root <- system.file('www', package='shiny')
-  
+startAppDir <- function(port=8101L) {
   globalR <- file.path.ci(getwd(), 'global.R')
   uiR <- file.path.ci(getwd(), 'ui.R')
   serverR <- file.path.ci(getwd(), 'server.R')
@@ -862,14 +925,55 @@ startApp <- function(port=8101L) {
     source(globalR, local=FALSE)
   
   shinyServer(NULL)
-  serverFileTimestamp <- NULL
-  local({
-    serverFileTimestamp <<- file.info(serverR)$mtime
-    source(serverR, local=new.env(parent=.GlobalEnv))
-    if (is.null(.globals$server))
-      stop("No server was defined in server.R")
-  })
-  serverFunc <- .globals$server
+  serverFileTimestamp <- file.info(serverR)$mtime
+  local(source(serverR, local=new.env(parent=.GlobalEnv)))
+  if (is.null(.globals$server))
+    stop("No server was defined in server.R")
+  
+  serverFuncSource <- function() {
+    # Check if server.R has changed, and if so, reload
+    mtime <- file.info(serverR)$mtime
+    if (!identical(mtime, serverFileTimestamp)) {
+      shinyServer(NULL)
+      serverFileTimestamp <<- mtime
+      local(source(serverR, local=new.env(parent=.GlobalEnv)))
+      if (is.null(.globals$server))
+        stop("No server was defined in server.R")
+    }
+    return(.globals$server)
+  }
+  
+  startApp(
+    c(dynamicHandler(uiR), wwwDir),
+    serverFuncSource,
+    port
+  )
+}
+
+startAppObj <- function(ui, serverFunc, port) {
+  uiHandler <- function(req) {
+    if (!identical(req$REQUEST_METHOD, 'GET'))
+      return(NULL)
+    
+    if (req$PATH_INFO != '/')
+      return(NULL)
+    
+    textConn <- textConnection(NULL, "w") 
+    on.exit(close(textConn))
+    
+    renderPage(ui, textConn)
+    html <- paste(textConnectionValue(textConn), collapse='\n')
+    return(httpResponse(200, content=html))
+  }
+  
+  startApp(uiHandler,
+             function() { serverFunc },
+             port)
+}
+
+startApp <- function(httpHandlers, serverFuncSource, port) {
+  
+  sys.www.root <- system.file('www', package='shiny')
   
   httpuvCallbacks <- list(
     onHeaders = function(req) {
@@ -895,8 +999,7 @@ startApp <- function(port=8101L) {
       }
     },
     call = httpServer(c(sessionHandler,
-                        dynamicHandler(uiR),
-                        wwwDir,
+                        httpHandlers,
                         sys.www.root,
                         resourcePathHandler)),
     onWSOpen = function(ws) {
@@ -936,6 +1039,11 @@ startApp <- function(port=8101L) {
                 splitName[[2]],
                 matrix = unpackMatrix(val),
                 number = ifelse(is.null(val), NA, val),
+                date = {
+                  # First replace NULLs with NA, then convert to Date vector
+                  datelist <- ifelse(lapply(val, is.null), NA, val)
+                  as.Date(unlist(datelist))
+                },
                 stop('Unknown type specified for ', name)
               )
             }
@@ -956,18 +1064,7 @@ startApp <- function(port=8101L) {
           msg$method,
           init = {
             
-            # Check if server.R has changed, and if so, reload
-            mtime <- file.info(serverR)$mtime
-            if (!identical(mtime, serverFileTimestamp)) {
-              shinyServer(NULL)
-              local({
-                serverFileTimestamp <<- mtime
-                source(serverR, local=new.env(parent=.GlobalEnv))
-                if (is.null(.globals$server))
-                  stop("No server was defined in server.R")
-              })
-              serverFunc <<- .globals$server
-            }
+            serverFunc <- serverFuncSource()
             
             shinysession$manageInputs(msg$data)
             local({
@@ -975,9 +1072,13 @@ startApp <- function(port=8101L) {
                 input=shinysession$input,
                 output=.createOutputWriter(shinysession))
 
-              # The clientData argument is optional; check if it exists
+              # The clientData and session arguments are optional; check if
+              # each exists
               if ('clientData' %in% names(formals(serverFunc)))
                 args$clientData <- shinysession$clientData
+
+              if ('session' %in% names(formals(serverFunc)))
+                args$session <- shinysession$session
 
               do.call(serverFunc, args)
             })
@@ -1002,9 +1103,14 @@ startApp <- function(port=8101L) {
     }
   )
   
-  message('\n', 'Listening on port ', port)
-
-  return(startServer("0.0.0.0", port, httpuvCallbacks))
+  if (is.numeric(port) || is.integer(port)) {
+    message('\n', 'Listening on port ', port)
+    return(startServer("0.0.0.0", port, httpuvCallbacks))
+  } else if (is.character(port)) {    
+    message('\n', 'Listening on domain socket ', port)
+    mask <- attr(port, 'mask')
+    return(startPipeServer(port, mask, httpuvCallbacks))
+  }
 }
 
 # NOTE: we de-roxygenized this comment because the function isn't exported
@@ -1048,7 +1154,27 @@ serviceApp <- function(ws_env) {
 #' @param launch.browser If true, the system's default web browser will be 
 #'   launched automatically after the app is started. Defaults to true in 
 #'   interactive sessions only.
-#'   
+#'
+#' @examples
+#' \dontrun{
+#' # Start app in the current working directory
+#' runApp()
+#'
+#' # Start app in a subdirectory called myapp
+#' runApp("myapp")
+#'
+#'
+#' # Apps can be run without a server.r and ui.r file
+#' runApp(list(
+#'   ui = bootstrapPage(
+#'     numericInput('n', 'Number of obs', 100),
+#'     plotOutput('plot')
+#'   ),
+#'   server = function(input, output) {
+#'     output$plot <- renderPlot({ hist(runif(input$n)) })
+#'   }
+#' ))
+#' }
 #' @export
 runApp <- function(appDir=getwd(),
                    port=8100L,
@@ -1071,18 +1197,22 @@ runApp <- function(appDir=getwd(),
     }
   }
 
-  orig.wd <- getwd()
-  setwd(appDir)
-  on.exit(setwd(orig.wd), add = TRUE)
-  
   require(shiny)
+
+  if (is.character(appDir)) {
+    orig.wd <- getwd()
+    setwd(appDir)
+    on.exit(setwd(orig.wd), add = TRUE)
+    server <- startAppDir(port=port)
+  } else {
+    server <- startAppObj(appDir$ui, appDir$server, port=port)
+  }
   
-  server <- startApp(port=port)
   on.exit({
     stopServer(server)
   }, add = TRUE)
   
-  if (launch.browser) {
+  if (launch.browser && !is.character(port)) {
     appUrl <- paste("http://localhost:", port, sep="")
     utils::browseURL(appUrl)
   }
@@ -1109,7 +1239,18 @@ runApp <- function(appDir=getwd(),
 #' @param launch.browser If true, the system's default web browser will be 
 #'   launched automatically after the app is started. Defaults to true in 
 #'   interactive sessions only.
-#'   
+#'
+#' @examples
+#' \dontrun{
+#' # List all available examples
+#' runExample()
+#'
+#' # Run one of the examples
+#' runExample("01_hello")
+#'
+#' # Print the directory containing the code for all examples
+#' system.file("examples", package="shiny")
+#' }
 #' @export
 runExample <- function(example=NA,
                        port=8100L,
