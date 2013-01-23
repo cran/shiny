@@ -1,13 +1,50 @@
-shiny 0.2.3
+shiny 0.3.0
 --------------------------------------------------------------------------------
 
-* Ignore request variables for routing purposes
+* Reactive functions are now evaluated lazily.
+
+* Add `reactiveValues()`.
+
+* Using `as.list()` to convert a reactivevalues object (like `input`) to a list
+  is deprecated. The new function `reactiveValuesToList()` should be used
+  instead.
+
+* Add `isolate()`. This function is used for accessing reactive functions,
+  without them invalidating their parent contexts.
+
+* Fix issue #58: bug where reactive functions are not re-run when all items in
+  a checkboxGroup are unchecked.
+
+* Fix issue #71, where `reactiveTable()` would return blank if the first
+  element of a data frame was NA.
+
+* In `plotOutput`, better validation for CSS units when specifying width and
+  height.
+
+* `reactivePrint()` no longer displays invisible output.
+
+* `reactiveText()` no longer displays printed output, only the return value
+  from a function.
+
+* The `runGitHub()` and `runUrl()` functions have been added, for running
+  Shiny apps from GitHub repositories and zip/tar files at remote URLs.
+
+* Fix issue #64, where pressing Enter in a textbox would cause a form to
+  submit.
+
+shiny 0.2.4
+--------------------------------------------------------------------------------
 
 * `runGist` has been updated to use the new download URLs from
   https://gist.github.com.
 
 * Shiny now uses `CairoPNG()` for output, when the Cairo package is available.
   This provides better-looking output on Linux and Windows.
+
+shiny 0.2.3
+--------------------------------------------------------------------------------
+
+* Ignore request variables for routing purposes
 
 shiny 0.2.2
 --------------------------------------------------------------------------------
