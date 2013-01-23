@@ -18,6 +18,8 @@ ShinyApp <- setRefClass(
     .websocket = 'list',
     .invalidatedOutputValues = 'Map',
     .invalidatedOutputErrors = 'Map',
+    .outputs = 'list',       # Keeps track of all the output observer objects
+    .outputOptions = 'list', # Options for each of the output observer objects
     .progressKeys = 'character',
     .fileUploadContext = 'FileUploadContext',
     session = 'ReactiveValues',
@@ -37,6 +39,8 @@ ShinyApp <- setRefClass(
       session <<- ReactiveValues$new()
       
       token <<- createUniqueId(16)
+      .outputs <<- list()
+      .outputOptions <<- list()
       
       allowDataUriScheme <<- TRUE
     },
@@ -49,6 +53,11 @@ ShinyApp <- setRefClass(
       # jcheng 08/31/2012: User submitted an example of a dynamically calculated
       # name not working unless name was eagerly evaluated. Yikes!
       force(name)
+
+      # If overwriting an output object, suspend the previous copy of it
+      if (!is.null(.outputs[[name]])) {
+        .outputs[[name]]$suspend()
+      }
       
       if (is.function(func)) {
         if (length(formals(func)) != 0) {
@@ -58,7 +67,7 @@ ShinyApp <- setRefClass(
           }
         }
 
-        obs <- Observer$new(function() {
+        obs <- observe({
           
           value <- try(func(), silent=FALSE)
           
@@ -74,11 +83,15 @@ ShinyApp <- setRefClass(
           }
           else
             .invalidatedOutputValues$set(name, value)
-        }, label)
+        }, label=label, suspended=TRUE)
         
         obs$onInvalidate(function() {
           showProgress(name)
         })
+
+        .outputs[[name]] <<- obs
+        # Default is to suspend when hidden
+        .outputOptions[[name]][['suspendWhenHidden']] <<- TRUE
       }
       else {
         stop(paste("Unexpected", class(func), "output for", name))
@@ -229,7 +242,7 @@ ShinyApp <- setRefClass(
           return(httpResponse(404, 'text/html', '<h1>Not Found</h1>'))
         
         filename <- ifelse(is.function(download$filename),
-                           Context$new()$run(download$filename),
+                           Context$new('[download]')$run(download$filename),
                            download$filename)
 
         # If the URL does not contain the filename, and the desired filename
@@ -246,7 +259,7 @@ ShinyApp <- setRefClass(
         
         tmpdata <- tempfile()
         on.exit(unlink(tmpdata))
-        result <- try(Context$new()$run(function() { download$func(tmpdata) }))
+        result <- try(Context$new('[download]')$run(function() { download$func(tmpdata) }))
         if (is(result, 'try-error')) {
           return(httpResponse(500, 'text/plain', 
                               attr(result, 'condition')$message))
@@ -283,21 +296,125 @@ ShinyApp <- setRefClass(
       return(sprintf('session/%s/download/%s',
                      URLencode(token, TRUE),
                      URLencode(name, TRUE)))
+    },
+    # This function suspends observers for hidden outputs and resumes observers
+    # for un-hidden outputs.
+    manageHiddenOutputs = function() {
+      # Find hidden state for each output, and suspend/resume accordingly
+      for (outputName in names(.outputs)) {
+        # Find corresponding hidden state input variable, with the format
+        # ".shinyout_foo_hidden".
+        # Some tricky stuff: instead of accessing names using session$names(),
+        # get the names directly via session$.values, to avoid triggering reactivity.
+        # Need to handle cases where the output object isn't actually used
+        # in the web page; in these cases, there's no .shinyout_foo_hidden flag,
+        # and hidden should be TRUE. In other words, NULL and TRUE should map
+        # to TRUE, FALSE should map to FALSE.
+        hidden <- session$.values[[paste(".shinyout_", outputName, "_hidden", sep="")]]
+        if (is.null(hidden)) hidden <- TRUE
+
+        if (hidden && .outputOptions[[outputName]][['suspendWhenHidden']]) {
+          .outputs[[outputName]]$suspend()
+        } else {
+          .outputs[[outputName]]$resume()
+        }
+      }
+    },
+    outputOptions = function(name, ...) {
+      # If no name supplied, return the list of options for all outputs
+      if (is.null(name))
+        return(.outputOptions)
+      if (! name %in% names(.outputs))
+        stop(name, " is not in list of output objects")
+
+      opts <- list(...)
+      # If no options are set, return the options for the specified output
+      if (length(opts) == 0)
+        return(.outputOptions[[name]])
+
+      # Set the appropriate option
+      validOpts <- "suspendWhenHidden"
+      for (optname in names(opts)) {
+        if (! optname %in% validOpts)
+          stop(optname, " is not a valid option")
+
+        .outputOptions[[name]][[optname]] <<- opts[[optname]]
+      }
+
+      # If any changes to suspendWhenHidden, need to re-run manageHiddenOutputs
+      if ("suspendWhenHidden" %in% names(opts)) {
+        manageHiddenOutputs()
+      }
+
+      invisible()
     }
   )
 )
 
 .createOutputWriter <- function(shinyapp) {
-  ow <- list(impl=shinyapp)
-  class(ow) <- 'shinyoutput'
-  return(ow)
+  structure(list(impl=shinyapp), class='shinyoutput')
 }
 
 #' @S3method $<- shinyoutput
 `$<-.shinyoutput` <- function(x, name, value) {
-  x[['impl']]$defineOutput(name, value, deparse(substitute(value)))
+  .subset2(x, 'impl')$defineOutput(name, value, deparse(substitute(value)))
   return(invisible(x))
 }
+
+#' @S3method [[<- shinyoutput
+`[[<-.shinyoutput` <- `$<-.shinyoutput`
+
+#' @S3method $ shinyoutput
+`$.shinyoutput` <- function(x, name) {
+  stop("Reading objects from shinyoutput object not allowed.")
+}
+
+#' @S3method [[ shinyoutput
+`[[.shinyoutput` <- `$.shinyoutput`
+
+#' @S3method [ shinyoutput
+`[.shinyoutput` <- function(values, name) {
+  stop("Single-bracket indexing of shinyoutput object is not allowed.")
+}
+
+#' @S3method [<- shinyoutput
+`[<-.shinyoutput` <- function(values, name, value) {
+  stop("Single-bracket indexing of shinyoutput object is not allowed.")
+}
+
+#' Set options for an output object.
+#'
+#' These are the available options for an output object:
+#' \itemize{
+#'   \item suspendWhenHidden. When \code{TRUE} (the default), the output object
+#'     will be suspended (not execute) when it is hidden on the web page. When
+#'     \code{FALSE}, the output object will not suspend when hidden, and if it
+#'     was already hidden and suspended, then it will resume immediately.
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' # Get the list of options for all observers within output
+#' outputOptions(output)
+#'
+#' # Disable suspend for output$myplot
+#' outputOptions(output, "myplot", suspendWhenHidden = FALSE)
+#'
+#' # Get the list of options for output$myplot
+#' outputOptions(output, "myplot")
+#' }
+#'
+#' @param x A shinyoutput object (typically \code{output}).
+#' @param name The name of an output observer in the shinyoutput object.
+#' @param ... Options to set for the output observer.
+#' @export
+outputOptions <- function(x, name, ...) {
+  if (!inherits(x, "shinyoutput"))
+    stop("x must be a shinyoutput object.")
+
+  .subset2(x, 'impl')$outputOptions(name, ...)
+}
+
 
 resolve <- function(dir, relpath) {
   abs.path <- file.path(dir, relpath)
@@ -317,7 +434,11 @@ resolve <- function(dir, relpath) {
 httpResponse <- function(status = 200,
                          content_type = "text/html; charset=UTF-8", 
                          content = "",
-                         headers = c()) {
+                         headers = list()) {
+  # Make sure it's a list, not a vector
+  headers <- as.list(headers)
+  if (is.null(headers$`X-UA-Compatible`))
+    headers$`X-UA-Compatible` <- "chrome=1"
   resp <- list(status = status, content_type = content_type, content = content,
                headers = headers)
   class(resp) <- 'httpResponse'
@@ -581,7 +702,7 @@ resourcePathHandler <- function(ws, header) {
 #' # A very simple Shiny app that takes a message from the user
 #' # and outputs an uppercase version of it.
 #' shinyServer(function(input, output) {
-#'   output$uppercase <- reactiveText(function() {
+#'   output$uppercase <- renderText({
 #'     toupper(input$message)
 #'   })
 #' })
@@ -727,6 +848,7 @@ startApp <- function(port=8101L) {
           msg$data[[ splitName[[1]] ]] <- switch(
             splitName[[2]],
             matrix = unpackMatrix(val),
+            number = ifelse(is.null(val), NA, val),
             stop('Unknown type specified for ', name)
           )
         }
@@ -763,7 +885,6 @@ startApp <- function(port=8101L) {
         shinyapp$allowDataUriScheme <- msg$data[['__allowDataUriScheme']]
         msg$data[['__allowDataUriScheme']] <- NULL
         shinyapp$session$mset(msg$data)
-        flushReact()
         local({
           serverFunc(input=.createReactiveValues(shinyapp$session, readonly=TRUE),
                      output=.createOutputWriter(shinyapp))
@@ -774,8 +895,12 @@ startApp <- function(port=8101L) {
       },
       shinyapp$dispatch(msg)
     )
+    shinyapp$manageHiddenOutputs()
     flushReact()
-    shinyapp$flushOutput()
+    lapply(apps$values(), function(shinyapp) {
+      shinyapp$flushOutput()
+      NULL
+    })
   }, ws_env)
   
   message('\n', 'Listening on port ', port)
@@ -790,11 +915,15 @@ startApp <- function(port=8101L) {
 # @param ws_env The return value from \code{\link{startApp}}.
 serviceApp <- function(ws_env) {
   if (timerCallbacks$executeElapsed()) {
+    for (shinyapp in apps$values()) {
+      shinyapp$manageHiddenOutputs()
+    }
+
     flushReact()
-     lapply(apps$values(), function(shinyapp) {
-       shinyapp$flushOutput()
-       NULL
-     })
+
+    for (shinyapp in apps$values()) {
+      shinyapp$flushOutput()
+    }
   }
 
   # If this R session is interactive, then call service() with a short timeout
@@ -896,8 +1025,8 @@ runExample <- function(example=NA,
 # The only difference is that, if the protocol is https, it changes the
 # download settings, depending on platform.
 download <- function(url, ...) {
-  # First, check protocol. If https, check platform:
-  if (grepl('^https://', url)) {
+  # First, check protocol. If http or https, check platform:
+  if (grepl('^https?://', url)) {
     
     # If Windows, call setInternet2, then use download.file with defaults.
     if (.Platform$OS.type == "windows") {
