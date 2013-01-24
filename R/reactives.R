@@ -1,61 +1,55 @@
-Dependencies <- setRefClass(
-  'Dependencies',
+Dependents <- setRefClass(
+  'Dependents',
   fields = list(
-    .dependencies = 'Map'
+    .dependents = 'Map'
   ),
   methods = list(
     register = function() {
       ctx <- .getReactiveEnvironment()$currentContext()
-      if (!.dependencies$containsKey(ctx$id)) {
-        .dependencies$set(ctx$id, ctx)
+      if (!.dependents$containsKey(ctx$id)) {
+        .dependents$set(ctx$id, ctx)
         ctx$onInvalidate(function() {
-          .dependencies$remove(ctx$id)
+          .dependents$remove(ctx$id)
         })
       }
     },
     invalidate = function() {
       lapply(
-        .dependencies$values(),
+        .dependents$values(),
         function(ctx) {
-          ctx$invalidateHint()
           ctx$invalidate()
           NULL
         }
       )
-    },
-    invalidateHint = function() {
-      lapply(
-        .dependencies$values(),
-        function(dep.ctx) {
-          dep.ctx$invalidateHint()
-          NULL
-        })
     }
   )
 )
 
-Values <- setRefClass(
-  'Values',
+
+ReactiveValues <- setRefClass(
+  'ReactiveValues',
   fields = list(
     .values = 'environment',
-    .dependencies = 'environment',
-    # Dependencies for the list of names
-    .namesDeps = 'Dependencies',
-    # Dependencies for all values
-    .allDeps = 'Dependencies'
+    .dependents = 'environment',
+    # Dependents for the list of all names, including hidden
+    .namesDeps = 'Dependents',
+    # Dependents for all values, including hidden
+    .allValuesDeps = 'Dependents',
+    # Dependents for all values
+    .valuesDeps = 'Dependents'
   ),
   methods = list(
     initialize = function() {
       .values <<- new.env(parent=emptyenv())
-      .dependencies <<- new.env(parent=emptyenv())
+      .dependents <<- new.env(parent=emptyenv())
     },
     get = function(key) {
       ctx <- .getReactiveEnvironment()$currentContext()
       dep.key <- paste(key, ':', ctx$id, sep='')
-      if (!exists(dep.key, where=.dependencies, inherits=FALSE)) {
-        assign(dep.key, ctx, pos=.dependencies, inherits=FALSE)
+      if (!exists(dep.key, where=.dependents, inherits=FALSE)) {
+        assign(dep.key, ctx, pos=.dependents, inherits=FALSE)
         ctx$onInvalidate(function() {
-          rm(list=dep.key, pos=.dependencies, inherits=FALSE)
+          rm(list=dep.key, pos=.dependents, inherits=FALSE)
         })
       }
       
@@ -65,6 +59,8 @@ Values <- setRefClass(
         base::get(key, pos=.values, inherits=FALSE)
     },
     set = function(key, value) {
+      hidden <- substr(key, 1, 1) == "."
+
       if (exists(key, where=.values, inherits=FALSE)) {
         if (identical(base::get(key, pos=.values, inherits=FALSE), value)) {
           return(invisible())
@@ -73,18 +69,21 @@ Values <- setRefClass(
       else {
         .namesDeps$invalidate()
       }
-      .allDeps$invalidate()
+
+      if (hidden)
+        .allValuesDeps$invalidate()
+      else
+        .valuesDeps$invalidate()
       
       assign(key, value, pos=.values, inherits=FALSE)
       dep.keys <- objects(
-        pos=.dependencies,
+        pos=.dependents,
         pattern=paste('^\\Q', key, ':', '\\E', '\\d+$', sep=''),
         all.names=TRUE
       )
       lapply(
-        mget(dep.keys, envir=.dependencies),
+        mget(dep.keys, envir=.dependents),
         function(ctx) {
-          ctx$invalidateHint()
           ctx$invalidate()
           NULL
         }
@@ -101,88 +100,211 @@ Values <- setRefClass(
       .namesDeps$register()
       return(ls(.values, all.names=TRUE))
     },
-    toList = function() {
-      .allDeps$register()
-      return(as.list(.values))
+    toList = function(all.names=FALSE) {
+      if (all.names)
+        .allValuesDeps$register()
+
+      .valuesDeps$register()
+
+      return(as.list(.values, all.names=all.names))
     }
   )
 )
 
-`[.Values` <- function(values, name) {
-  values$get(name)
+
+# reactivevalues: S3 wrapper class for Values class -----------------------
+
+#' Create an object for storing reactive values
+#'
+#' This function returns an object for storing reactive values. It is similar
+#' to a list, but with special capabilities for reactive programming. When you
+#' read a value from it, the calling reactive function takes a reactive
+#' dependency on that value, and when you write to it, it notifies any reactive
+#' functions that depend on that value.
+#'
+#' @examples
+#' # Create the object with no values
+#' values <- reactiveValues()
+#'
+#' # Assign values to 'a' and 'b'
+#' values$a <- 3
+#' values[['b']] <- 4
+#'
+#' \dontrun{
+#' # From within a reactive context, you can access values with:
+#' values$a
+#' values[['a']]
+#' }
+#'
+#' # If not in a reactive context (e.g., at the console), you can use isolate()
+#' # to retrieve the value:
+#' isolate(values$a)
+#' isolate(values[['a']])
+#'
+#' # Set values upon creation
+#' values <- reactiveValues(a = 1, b = 2)
+#' isolate(values$a)
+#'
+#' @param ... Objects that will be added to the reactivevalues object. All of
+#'   these objects must be named.
+#'
+#' @seealso \code{\link{isolate}}.
+#'
+#' @export
+reactiveValues <- function(...) {
+  args <- list(...)
+  if ((length(args) > 0) && (is.null(names(args)) || any(names(args) == "")))
+    stop("All arguments passed to reactiveValues() must be named.")
+
+  values <- .createReactiveValues(ReactiveValues$new())
+
+  # Use .subset2() instead of [[, to avoid method dispatch
+  .subset2(values, 'impl')$mset(args)
+  values
 }
 
-`[<-.Values` <- function(values, name, value) {
-  values$set(name, value)
-  return(values)
-}
-
-.createValuesReader <- function(values) {
+# Create a reactivevalues object
+#
+# @param values A ReactiveValues object
+# @param readonly Should this object be read-only?
+.createReactiveValues <- function(values = NULL, readonly = FALSE) {
   acc <- list(impl=values)
-  class(acc) <- 'reactvaluesreader'
+  class(acc) <- 'reactivevalues'
+  attr(acc, 'readonly') <- readonly
   return(acc)
 }
 
-#' @S3method $ reactvaluesreader
-`$.reactvaluesreader` <- function(x, name) {
-  x[['impl']]$get(name)
+#' @S3method $ reactivevalues
+`$.reactivevalues` <- function(x, name) {
+  .subset2(x, 'impl')$get(name)
 }
 
-#' @S3method names reactvaluesreader
-names.reactvaluesreader <- function(x) {
-  x[['impl']]$names()
+#' @S3method [[ reactivevalues
+`[[.reactivevalues` <- `$.reactivevalues`
+
+#' @S3method $<- reactivevalues
+`$<-.reactivevalues` <- function(x, name, value) {
+  if (attr(x, 'readonly')) {
+    stop("Attempted to assign value to a read-only reactivevalues object")
+  } else if (length(name) != 1 || !is.character(name)) {
+    stop("Must use single string to index into reactivevalues")
+  } else {
+    .subset2(x, 'impl')$set(name, value)
+    x
+  }
 }
 
-#' @S3method as.list reactvaluesreader
-as.list.reactvaluesreader <- function(x, ...) {
-  x[['impl']]$toList()
+#' @S3method [[<- reactivevalues
+`[[<-.reactivevalues` <- `$<-.reactivevalues`
+
+#' @S3method [ reactivevalues
+`[.reactivevalues` <- function(values, name) {
+  stop("Single-bracket indexing of reactivevalues object is not allowed.")
+}
+
+#' @S3method [<- reactivevalues
+`[<-.reactivevalues` <- function(values, name, value) {
+  stop("Single-bracket indexing of reactivevalues object is not allowed.")
+}
+
+#' @S3method names reactivevalues
+names.reactivevalues <- function(x) {
+  .subset2(x, 'impl')$names()
+}
+
+#' @S3method names<- reactivevalues
+`names<-.reactivevalues` <- function(x, value) {
+  stop("Can't assign names to reactivevalues object")
+}
+
+#' @S3method as.list reactivevalues
+as.list.reactivevalues <- function(x, all.names=FALSE, ...) {
+  .Deprecated("reactiveValuesToList",
+    msg = paste("'as.list.reactivevalues' is deprecated. ",
+      "Use reactiveValuesToList instead.",
+      "\nPlease see ?reactiveValuesToList for more information.",
+      sep = ""))
+
+  reactiveValuesToList(x, all.names)
+}
+
+#' Convert a reactivevalues object to a list
+#'
+#' This function does something similar to what you might \code{\link{as.list}}
+#' to do. The difference is that the calling context will take dependencies on
+#' every object in the reactivevalues object. To avoid taking dependencies on
+#' all the objects, you can wrap the call with \code{\link{isolate}()}.
+#'
+#' @param x A reactivevalues object.
+#' @param all.names If \code{TRUE}, include objects with a leading dot. If
+#'   \code{FALSE} (the default) don't include those objects.
+#' @examples
+#' values <- reactiveValues(a = 1)
+#' \dontrun{
+#' reactiveValuesToList(values)
+#' }
+#'
+#' # To get the objects without taking dependencies on them, use isolate().
+#' # isolate() can also be used when calling from outside a reactive context (e.g.
+#' # at the console)
+#' isolate(reactiveValuesToList(values))
+#'
+#' @export
+reactiveValuesToList <- function(x, all.names=FALSE) {
+  .subset2(x, 'impl')$toList(all.names)
 }
 
 Observable <- setRefClass(
   'Observable',
   fields = list(
     .func = 'function',
-    .dependencies = 'Dependencies',
-    .initialized = 'logical',
-    .value = 'ANY'
+    .label = 'character',
+    .dependents = 'Dependents',
+    .dirty = 'logical',
+    .running = 'logical',
+    .value = 'ANY',
+    .execCount = 'integer'
   ),
   methods = list(
-    initialize = function(func) {
+    initialize = function(func, label=deparse(substitute(func))) {
       if (length(formals(func)) > 0)
         stop("Can't make a reactive function from a function that takes one ",
              "or more parameters; only functions without parameters can be ",
              "reactive.")
       .func <<- func
-      .initialized <<- FALSE
+      .dirty <<- TRUE
+      .running <<- FALSE
+      .label <<- label
+      .execCount <<- 0L
     },
     getValue = function() {
-      if (!.initialized) {
-        .initialized <<- TRUE
+      .dependents$register()
+
+      if (.dirty || .running) {
         .self$.updateValue()
       }
-      
-      .dependencies$register()
       
       if (identical(class(.value), 'try-error'))
         stop(attr(.value, 'condition'))
       return(.value)
     },
     .updateValue = function() {
-      old.value <- .value
-      
-      ctx <- Context$new()
+      ctx <- Context$new(.label)
       ctx$onInvalidate(function() {
-        .self$.updateValue()
+        .dirty <<- TRUE
+        .dependents$invalidate()
       })
-      ctx$onInvalidateHint(function() {
-        .dependencies$invalidateHint()
-      })
+      .execCount <<- .execCount + 1L
+
+      .dirty <<- FALSE
+
+      wasRunning <- .running
+      .running <<- TRUE
+      on.exit(.running <<- wasRunning)
+
       ctx$run(function() {
         .value <<- try(.func(), silent=FALSE)
       })
-      if (!identical(old.value, .value)) {
-        .dependencies$invalidate()
-      }
     }
   )
 )
@@ -214,49 +336,67 @@ reactive <- function(x) {
 }
 #' @S3method reactive function
 reactive.function <- function(x) {
-  return(Observable$new(x)$getValue)
+  return(Observable$new(x, deparse(substitute(x)))$getValue)
 }
 #' @S3method reactive default
 reactive.default <- function(x) {
   stop("Don't know how to make this object reactive!")
 }
 
+# Return the number of times that a reactive function or observer has been run
+execCount <- function(x) {
+  if (is.function(x))
+    return(environment(x)$.execCount)
+  else if (is(x, 'Observer'))
+    return(x$.execCount)
+  else
+    stop('Unexpected argument to execCount')
+}
+
 Observer <- setRefClass(
   'Observer',
   fields = list(
     .func = 'function',
-    .hintCallbacks = 'list'
+    .label = 'character',
+    .flushCallbacks = 'list',
+    .execCount = 'integer'
   ),
   methods = list(
-    initialize = function(func) {
+    initialize = function(func, label) {
       if (length(formals(func)) > 0)
         stop("Can't make an observer from a function that takes parameters; ",
              "only functions without parameters can be reactive.")
 
       .func <<- func
+      .label <<- label
+      .execCount <<- 0L
 
       # Defer the first running of this until flushReact is called
-      ctx <- Context$new()
-      ctx$onInvalidate(function() {
+      ctx <- Context$new(.label)
+      ctx$onFlush(function() {
         run()
       })
-      ctx$invalidate()
+      ctx$addPendingFlush()
     },
     run = function() {
-      ctx <- Context$new()
+      ctx <- Context$new(.label)
+
       ctx$onInvalidate(function() {
-        run()
-      })
-      ctx$onInvalidateHint(function() {
-        lapply(.hintCallbacks, function(func) {
+        lapply(.flushCallbacks, function(func) {
           func()
           NULL
         })
+        ctx$addPendingFlush()
       })
+
+      ctx$onFlush(function() {
+        run()
+      })
+      .execCount <<- .execCount + 1L
       ctx$run(.func)
     },
-    onInvalidateHint = function(func) {
-      .hintCallbacks <<- c(.hintCallbacks, func)
+    onInvalidate = function(func) {
+      .flushCallbacks <<- c(.flushCallbacks, func)
     }
   )
 )
@@ -282,8 +422,7 @@ Observer <- setRefClass(
 #'   
 #' @export
 observe <- function(func) {
-  Observer$new(func)
-  invisible()
+  invisible(Observer$new(func, deparse(substitute(func))))
 }
 
 #' Timer
@@ -307,11 +446,11 @@ observe <- function(func) {
 #' @seealso invalidateLater
 #' @export
 reactiveTimer <- function(intervalMs=1000) {
-  dependencies <- Map$new()
+  dependents <- Map$new()
   timerCallbacks$schedule(intervalMs, function() {
     timerCallbacks$schedule(intervalMs, sys.function())
     lapply(
-      dependencies$values(),
+      dependents$values(),
       function(dep.ctx) {
         dep.ctx$invalidate()
         NULL
@@ -319,10 +458,10 @@ reactiveTimer <- function(intervalMs=1000) {
   })
   return(function() {
     ctx <- .getReactiveEnvironment()$currentContext()
-    if (!dependencies$containsKey(ctx$id)) {
-      dependencies$set(ctx$id, ctx)
+    if (!dependents$containsKey(ctx$id)) {
+      dependents$set(ctx$id, ctx)
       ctx$onInvalidate(function() {
-        dependencies$remove(ctx$id)
+        dependents$remove(ctx$id)
       })
     }
     return(Sys.time())
@@ -342,4 +481,49 @@ invalidateLater <- function(millis) {
     ctx$invalidate()
   })
   invisible()
+}
+
+#' Create a non-reactive scope for an expression
+#' 
+#' Executes the given expression in a scope where reactive values or functions 
+#' can be read, but they cannot cause the reactive scope of the caller to be 
+#' re-evaluated when they change.
+#' 
+#' Ordinarily, the simple act of reading a reactive value causes a relationship 
+#' to be established between the caller and the reactive value, where a change 
+#' to the reactive value will cause the caller to re-execute. (The same applies 
+#' for the act of getting a reactive function's value.) The \code{isolate} 
+#' function lets you read a reactive value or function without establishing this
+#' relationship.
+#' 
+#' @param expr An expression that can access reactive values or functions.
+#' 
+#' @examples
+#' \dontrun{
+#' observer(function() {
+#'   input$saveButton  # Do take a dependency on input$saveButton
+#'   
+#'   # isolate a simple expression
+#'   data <- get(isolate(input$dataset))  # No dependency on input$dataset
+#'   writeToDatabase(data)
+#' })
+#' 
+#' observer(function() {
+#'   input$saveButton  # Do take a dependency on input$saveButton
+#'   
+#'   # isolate a whole block
+#'   data <- isolate({
+#'     a <- input$valueA   # No dependency on input$valueA or input$valueB
+#'     b <- input$valueB
+#'     c(a=a, b=b)
+#'   })
+#'   writeToDatabase(data)
+#' })
+#' }
+#' @export
+isolate <- function(expr) {
+  ctx <- Context$new('[isolate]')
+  ctx$run(function() {
+    eval.parent(expr)
+  })
 }
