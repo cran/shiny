@@ -293,8 +293,25 @@ numericInput <- function(inputId, label, value, min = NA, max = NA, step = NA) {
 #' File Upload Control
 #' 
 #' Create a file upload control that can be used to upload one or more files. 
-#' \bold{Experimental feature. Only works in some browsers (primarily tested on
-#' Chrome and Firefox).}
+#' \bold{Does not work on older browsers, including Internet Explorer 9 and
+#' earlier.}
+#' 
+#' Whenever a file upload completes, the corresponding input variable is set
+#' to a dataframe. This dataframe contains one row for each selected file, and
+#' the following columns:
+#' \describe{
+#'   \item{\code{name}}{The filename provided by the web browser. This is
+#'   \strong{not} the path to read to get at the actual data that was uploaded
+#'   (see
+#'   \code{datapath} column).}
+#'   \item{\code{size}}{The size of the uploaded data, in
+#'   bytes.}
+#'   \item{\code{type}}{The MIME type reported by the browser (for example, 
+#'   \code{text/plain}), or empty string if the browser didn't know.}
+#'   \item{\code{datapath}}{The path to a temp file that contains the data that was
+#'   uploaded. This file may be deleted if the user performs another upload
+#'   operation.}
+#' }
 #' 
 #' @param inputId Input variable to assign the control's value to.
 #' @param label Display label for the control.
@@ -313,7 +330,13 @@ fileInput <- function(inputId, label, multiple = FALSE, accept = NULL) {
   
   tagList(
     tags$label(label),
-    inputTag
+    inputTag,
+    tags$div(
+      id=paste(inputId, "_progress", sep=""),
+      class="progress progress-striped active shiny-file-input-progress",
+      tags$div(class="bar"),
+      tags$label()
+    )
   )
 }
 
@@ -738,7 +761,28 @@ verbatimTextOutput <- function(outputId) {
   pre(id = outputId, class =  "shiny-text-output")
 }
 
-#' Create a plot output element
+#' Create a image output element
+#' 
+#' Render a \link{renderImage} within an application page.
+#' @param outputId output variable to read the image from
+#' @param width Image width. Must be a valid CSS unit (like \code{"100\%"},
+#'   \code{"400px"}, \code{"auto"}) or a number, which will be coerced to a
+#'   string and have \code{"px"} appended.
+#' @param height Image height
+#' @return An image output element that can be included in a panel
+#' @examples
+#' # Show an image
+#' mainPanel(
+#'   imageOutput("dataImage")
+#' )
+#' @export
+imageOutput <- function(outputId, width = "100%", height="400px") {
+  style <- paste("width:", validateCssUnit(width), ";",
+    "height:", validateCssUnit(height))
+  div(id = outputId, class = "shiny-image-output", style = style)
+}
+
+#' Create an plot output element
 #' 
 #' Render a \link{renderPlot} within an application page.
 #' @param outputId output variable to read the plot from
@@ -756,7 +800,7 @@ verbatimTextOutput <- function(outputId) {
 plotOutput <- function(outputId, width = "100%", height="400px") {
   style <- paste("width:", validateCssUnit(width), ";",
     "height:", validateCssUnit(height))
-  div(id = outputId, class="shiny-plot-output", style = style)
+  div(id = outputId, class = "shiny-plot-output", style = style)
 }
 
 #' Create a table output element

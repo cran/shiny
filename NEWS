@@ -1,3 +1,34 @@
+shiny 0.5.0
+--------------------------------------------------------------------------------
+
+* Switch from websockets package for handling websocket connections to httpuv.
+
+* New method for detecting hidden output objects. Instead of checking that
+  height and width are 0, it checks that the object or any ancestor in the DOM
+  has style display:none.
+
+* Add `clientData` reactive values object, which carries information about the
+  client. This includes the hidden status of output objects, height/width plot
+  output objects, and the URL of the browser.
+
+* Add `parseQueryString()` function.
+
+* Add `renderImage()` function for sending arbitrary image files to the client,
+  and its counterpart, `imageOutput()`.
+
+* Add support for high-resolution (Retina) displays.
+
+* Fix bug #55, where `renderTable()` would throw error with an empty data frame.
+
+shiny 0.4.1
+--------------------------------------------------------------------------------
+
+* Fix bug where width and height weren't passed along properly from
+  `reactivePlot` to `renderPlot`.
+
+* Fix bug where infinite recursion would happen when `reactivePlot` was passed
+  a function for width or height.
+
 shiny 0.4.0
 --------------------------------------------------------------------------------
 
