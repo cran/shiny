@@ -19,7 +19,10 @@
   execute) when it is hidden on the web page. When
   \code{FALSE}, the output object will not suspend when
   hidden, and if it was already hidden and suspended, then
-  it will resume immediately. }
+  it will resume immediately.  \item priority. The priority
+  level of the output object. Queued outputs with higher
+  priority values will execute before those with lower
+  values. }
 }
 \examples{
 \dontrun{
@@ -28,6 +31,9 @@ outputOptions(output)
 
 # Disable suspend for output$myplot
 outputOptions(output, "myplot", suspendWhenHidden = FALSE)
+
+# Change priority for output$myplot
+outputOptions(output, "myplot", priority = 10)
 
 # Get the list of options for output$myplot
 outputOptions(output, "myplot")

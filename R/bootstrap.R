@@ -4,9 +4,12 @@
 #' \href{http://getbootstrap.com}{Twitter Bootstrap}, and has no content in the
 #' page body (other than what you provide).
 #' 
-#' This function is primarily intended for users who are proficient in HTML/CSS,
-#' and know how to lay out pages in Bootstrap. Most users should use template
-#' functions like \code{\link{pageWithSidebar}}.
+#' These functions are primarily intended for users who are proficient in
+#' HTML/CSS, and know how to lay out pages in Bootstrap. Most users should use
+#' template functions like \code{\link{pageWithSidebar}}.
+#'
+#' \code{basicPage} is the same as \code{bootstrapPage}, with an added
+#' \code{<div class="container-fluid">} wrapper to provide a little padding.
 #' 
 #' @param ... The contents of the document body.
 #' @return A UI defintion that can be passed to the \link{shinyUI} function.
@@ -57,6 +60,12 @@ bootstrapPage <- function(...) {
     importBootstrap(),
     list(...)
   )
+}
+
+#' @rdname bootstrapPage
+#' @export
+basicPage <- function(...) {
+  bootstrapPage(div(class="container-fluid", list(...)))
 }
 
 #' Create a page with a sidebar
@@ -246,12 +255,14 @@ conditionalPanel <- function(condition, ...) {
 #' @param value Initial value
 #' @return A text input control that can be added to a UI definition.
 #' 
+#' @seealso \code{\link{updateTextInput}}
+#'
 #' @examples
 #' textInput("caption", "Caption:", "Data Summary")
 #' @export
 textInput <- function(inputId, label, value = "") {
   tagList(
-    tags$label(label),
+    tags$label(label, `for` = inputId),
     tags$input(id = inputId, type="text", value=value)
   )
 }
@@ -267,6 +278,8 @@ textInput <- function(inputId, label, value = "") {
 #' @param max Maximum allowed value
 #' @param step Interval to use when stepping between min and max
 #' @return A numeric input control that can be added to a UI definition.
+#'
+#' @seealso \code{\link{updateNumericInput}}
 #' 
 #' @examples
 #' numericInput("obs", "Observations:", 10, 
@@ -284,7 +297,7 @@ numericInput <- function(inputId, label, value, min = NA, max = NA, step = NA) {
     inputTag$attribs$step = step
   
   tagList(
-    tags$label(label),
+    tags$label(label, `for` = inputId),
     inputTag
   )
 }
@@ -350,7 +363,7 @@ fileInput <- function(inputId, label, multiple = FALSE, accept = NULL) {
 #' @param value Initial value (\code{TRUE} or \code{FALSE}).
 #' @return A checkbox control that can be added to a UI definition.
 #' 
-#' @seealso \code{\link{checkboxGroupInput}}
+#' @seealso \code{\link{checkboxGroupInput}}, \code{\link{updateCheckboxInput}}
 #' 
 #' @examples
 #' checkboxInput("outliers", "Show outliers", FALSE)
@@ -359,7 +372,7 @@ checkboxInput <- function(inputId, label, value = FALSE) {
   inputTag <- tags$input(id = inputId, type="checkbox")
   if (!is.null(value) && value)
     inputTag$attribs$checked <- "checked"
-  tags$label(class = "checkbox", inputTag, label)
+  tags$label(class = "checkbox", `for` = inputId, inputTag, tags$span(label))
 }
 
 
@@ -376,7 +389,7 @@ checkboxInput <- function(inputId, label, value = FALSE) {
 #' @param selected Names of items that should be initially selected, if any.
 #' @return A list of HTML elements that can be added to a UI definition.
 #'   
-#' @seealso \code{\link{checkboxInput}}
+#' @seealso \code{\link{checkboxInput}}, \code{\link{updateCheckboxGroupInput}}
 #'   
 #' @examples
 #' checkboxGroupInput("variable", "Variable:",
@@ -390,21 +403,27 @@ checkboxGroupInput <- function(inputId, label, choices, selected = NULL) {
   choices <- choicesWithNames(choices)
   
   checkboxes <- list()
-  for (choiceName in names(choices)) {
-    
-    checkbox <- tags$input(name = inputId, type="checkbox",
-                           value = choices[[choiceName]])
-    
+  for (i in seq_along(choices)) {
+    choiceName <- names(choices)[i]
+
+    inputTag <- tags$input(type = "checkbox",
+                           name = inputId,
+                           id = paste(inputId, i, sep=""),
+                           value = choices[[i]])
+
     if (choiceName %in% selected)
-      checkbox$attribs$checked <- 'checked'
+      inputTag$attribs$checked <- "checked"
+
+    checkbox <- tags$label(class = "checkbox",
+                           inputTag,
+                           tags$span(choiceName))
     
-    checkboxes[[length(checkboxes)+1]] <- checkbox
-    checkboxes[[length(checkboxes)+1]] <- choiceName
-    checkboxes[[length(checkboxes)+1]] <- tags$br()
+    checkboxes[[i]] <- checkbox
   } 
   
   # return label and select tag
-  tags$div(class='control-group',
+  tags$div(id = inputId,
+           class = "control-group shiny-input-checkboxgroup",
            controlLabel(inputId, label),
            checkboxes)
 }
@@ -431,6 +450,8 @@ controlLabel <- function(controlName, label) {
   tags$label(class = "control-label", `for` = controlName, label)
 }
 
+# Takes a vector or list, and adds names (same as the value) to any entries
+# without names.
 choicesWithNames <- function(choices) {
   # get choice names
   choiceNames <- names(choices)
@@ -461,6 +482,8 @@ choicesWithNames <- function(choices) {
 #' @param multiple Is selection of multiple items allowed?
 #' @return A select list control that can be added to a UI definition.
 #' 
+#' @seealso \code{\link{updateSelectInput}}
+#'
 #' @examples
 #' selectInput("variable", "Variable:",
 #'             c("Cylinders" = "cyl",
@@ -483,12 +506,16 @@ selectInput <- function(inputId,
   selectTag <- tags$select(id = inputId)
   if (multiple)
     selectTag$attribs$multiple <- "multiple"
-  for (choiceName in names(choices)) {
-    optionTag <- tags$option(value = choices[[choiceName]], choiceName)
+
+  for (i in seq_along(choices)) {
+    choiceName <- names(choices)[i]
+    optionTag <- tags$option(value = choices[[i]], choiceName)
+
     if (choiceName %in% selected)
       optionTag$attribs$selected = "selected"
+
     selectTag <- tagAppendChild(selectTag, optionTag)
-  } 
+  }
   
   # return label and select tag
   tagList(controlLabel(inputId, label), selectTag)
@@ -505,6 +532,8 @@ selectInput <- function(inputId,
 #' @param selected Name of initially selected item (if not specified then
 #' defaults to the first item)
 #' @return A set of radio buttons that can be added to a UI definition.
+#'
+#' @seealso \code{\link{updateRadioButtons}}
 #' 
 #' @examples
 #' radioButtons("dist", "Distribution type:",
@@ -523,7 +552,7 @@ radioButtons <- function(inputId, label, choices, selected = NULL) {
   
   # build list of radio button tags
   inputTags <- list()
-  for (i in 1:length(choices)) {
+  for (i in seq_along(choices)) {
     id <- paste(inputId, i, sep="")
     name <- names(choices)[[i]]
     value <- choices[[i]]
@@ -533,15 +562,19 @@ radioButtons <- function(inputId, label, choices, selected = NULL) {
                            value = value)
     if (identical(name, selected))
       inputTag$attribs$checked = "checked"
-    
+
+    # Put the label text in a span
+    spanTag <- tags$span(name)
     labelTag <- tags$label(class = "radio")
     labelTag <- tagAppendChild(labelTag, inputTag)
-    labelTag <- tagAppendChild(labelTag, name)
+    labelTag <- tagAppendChild(labelTag, spanTag)
     inputTags[[length(inputTags) + 1]] <- labelTag
   }
   
-  tagList(tags$label(class = "control-label", label),
-          inputTags)
+  tags$div(id = inputId,
+           class = 'control-group shiny-input-radiogroup',
+           tags$label(class = "control-label", `for` = inputId, label),
+           inputTags)
 }
 
 #' Create a submit button
@@ -560,6 +593,21 @@ submitButton <- function(text = "Apply Changes") {
   div(
     tags$button(type="submit", class="btn btn-primary", text)
   )
+}
+
+#' Action button
+#'
+#' Creates an action button whose value is initially zero, and increments by one
+#' each time it is pressed.
+#'
+#' @param inputId Specifies the input slot that will be used to access the
+#'   value.
+#' @param label The contents of the button--usually a text label, but you could
+#'   also use any other HTML, like an image.
+#'
+#' @export
+actionButton <- function(inputId, label) {
+  tags$button(id=inputId, type="button", class="btn action-button", label)
 }
 
 #' Slider Input Widget
@@ -589,6 +637,8 @@ submitButton <- function(text = "Apply Changes") {
 #' @param animate \code{TRUE} to show simple animation controls with default 
 #'   settings; \code{FALSE} not to; or a custom settings list, such as those 
 #'   created using \code{\link{animationOptions}}.
+#'
+#' @seealso \code{\link{updateSliderInput}}
 #'   
 #' @details
 #' 
@@ -623,11 +673,243 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
   }
   
   # build slider
+  tags$div(
+    tagList(
+      controlLabel(inputId, labelText),
+      slider(inputId, min=min, max=max, value=value, step=step, round=round,
+             locale=locale, format=format, ticks=ticks,
+             animate=animate)
+    )
+  )
+}
+
+
+#' Create date input
+#'
+#' Creates a text input which, when clicked on, brings up a calendar that
+#' the user can click on to select dates.
+#'
+#' The date \code{format} string specifies how the date will be displayed in
+#' the browser. It allows the following values:
+#'
+#' \itemize{
+#'   \item \code{yy} Year without century (12)
+#'   \item \code{yyyy} Year with century (2012)
+#'   \item \code{mm} Month number, with leading zero (01-12)
+#'   \item \code{m} Month number, without leading zero (01-12)
+#'   \item \code{M} Abbreviated month name
+#'   \item \code{MM} Full month name
+#'   \item \code{dd} Day of month with leading zero
+#'   \item \code{d} Day of month without leading zero
+#'   \item \code{D} Abbreviated weekday name
+#'   \item \code{DD} Full weekday name
+#' }
+#'
+#' @param inputId Input variable to assign the control's value to.
+#' @param label Display label for the control.
+#' @param value The starting date. Either a Date object, or a string in
+#'   \code{yyyy-mm-dd} format. If NULL (the default), will use the current
+#'   date in the client's time zone.
+#' @param min The minimum allowed date. Either a Date object, or a string in
+#'   \code{yyyy-mm-dd} format.
+#' @param max The maximum allowed date. Either a Date object, or a string in
+#'   \code{yyyy-mm-dd} format.
+#' @param format The format of the date to display in the browser. Defaults to
+#'   \code{"yyyy-mm-dd"}.
+#' @param startview The date range shown when the input object is first
+#'   clicked. Can be "month" (the default), "year", or "decade".
+#' @param weekstart Which day is the start of the week. Should be an integer
+#'   from 0 (Sunday) to 6 (Saturday).
+#' @param language The language used for month and day names. Default is "en".
+#'   Other valid values include "bg", "ca", "cs", "da", "de", "el", "es", "fi",
+#'   "fr", "he", "hr", "hu", "id", "is", "it", "ja", "kr", "lt", "lv", "ms",
+#'   "nb", "nl", "pl", "pt", "pt", "ro", "rs", "rs-latin", "ru", "sk", "sl",
+#'   "sv", "sw", "th", "tr", "uk", "zh-CN", and "zh-TW".
+#'
+#' @seealso \code{\link{dateRangeInput}}, \code{\link{updateDateInput}}
+#'
+#' @examples
+#' dateInput("date", "Date:", value = "2012-02-29")
+#'
+#' # Default value is the date in client's time zone
+#' dateInput("date", "Date:")
+#'
+#' # value is always yyyy-mm-dd, even if the display format is different
+#' dateInput("date", "Date:", value = "2012-02-29", format = "mm/dd/yy")
+#'
+#' # Pass in a Date object
+#' dateInput("date", "Date:", value = Sys.Date()-10)
+#'
+#' # Use different language and different first day of week
+#' dateInput("date", "Date:",
+#'           language = "de",
+#'           weekstart = 1)
+#'
+#' # Start with decade view instead of default month view
+#' dateInput("date", "Date:",
+#'           startview = "decade")
+#'
+#' @export
+dateInput <- function(inputId, label, value = NULL, min = NULL, max = NULL,
+    format = "yyyy-mm-dd", startview = "month", weekstart = 0, language = "en") {
+
+  # If value is a date object, convert it to a string with yyyy-mm-dd format
+  # Same for min and max
+  if (inherits(value, "Date"))  value <- format(value, "%Y-%m-%d")
+  if (inherits(min,   "Date"))  min   <- format(min,   "%Y-%m-%d")
+  if (inherits(max,   "Date"))  max   <- format(max,   "%Y-%m-%d")
+
   tagList(
-    controlLabel(inputId, labelText),  
-    slider(inputId, min=min, max=max, value=value, step=step, round=round,
-           locale=locale, format=format, ticks=ticks,
-           animate=animate)
+    singleton(tags$head(
+      tags$script(src = "shared/datepicker/js/bootstrap-datepicker.min.js"),
+      tags$link(rel = "stylesheet", type = "text/css",
+                href = 'shared/datepicker/css/datepicker.css')
+    )),
+    tags$div(id = inputId,
+             class = "shiny-date-input",
+
+      controlLabel(inputId, label),
+      tags$input(type = "text",
+                 # datepicker class necessary for dropdown to display correctly
+                 class = "input-medium datepicker",
+                 `data-date-language` = language,
+                 `data-date-weekstart` = weekstart,
+                 `data-date-format` = format,
+                 `data-date-start-view` = startview,
+                 `data-min-date` = min,
+                 `data-max-date` = max,
+                 `data-initial-date` = value
+      )
+    )
+  )
+}
+
+
+#' Create date range input
+#'
+#' Creates a pair of text inputs which, when clicked on, bring up calendars that
+#' the user can click on to select dates.
+#'
+#' The date \code{format} string specifies how the date will be displayed in
+#' the browser. It allows the following values:
+#'
+#' \itemize{
+#'   \item \code{yy} Year without century (12)
+#'   \item \code{yyyy} Year with century (2012)
+#'   \item \code{mm} Month number, with leading zero (01-12)
+#'   \item \code{m} Month number, without leading zero (01-12)
+#'   \item \code{M} Abbreviated month name
+#'   \item \code{MM} Full month name
+#'   \item \code{dd} Day of month with leading zero
+#'   \item \code{d} Day of month without leading zero
+#'   \item \code{D} Abbreviated weekday name
+#'   \item \code{DD} Full weekday name
+#' }
+#'
+#' @param inputId Input variable to assign the control's value to.
+#' @param label Display label for the control.
+#' @param start The initial start date. Either a Date object, or a string in
+#'   \code{yyyy-mm-dd} format. If NULL (the default), will use the current
+#'   date in the client's time zone.
+#' @param end The initial end date. Either a Date object, or a string in
+#'   \code{yyyy-mm-dd} format. If NULL (the default), will use the current
+#'   date in the client's time zone.
+#' @param min The minimum allowed date. Either a Date object, or a string in
+#'   \code{yyyy-mm-dd} format.
+#' @param max The maximum allowed date. Either a Date object, or a string in
+#'   \code{yyyy-mm-dd} format.
+#' @param format The format of the date to display in the browser. Defaults to
+#'   \code{"yyyy-mm-dd"}.
+#' @param startview The date range shown when the input object is first
+#'   clicked. Can be "month" (the default), "year", or "decade".
+#' @param weekstart Which day is the start of the week. Should be an integer
+#'   from 0 (Sunday) to 6 (Saturday).
+#' @param language The language used for month and day names. Default is "en".
+#'   Other valid values include "bg", "ca", "cs", "da", "de", "el", "es", "fi",
+#'   "fr", "he", "hr", "hu", "id", "is", "it", "ja", "kr", "lt", "lv", "ms",
+#'   "nb", "nl", "pl", "pt", "pt", "ro", "rs", "rs-latin", "ru", "sk", "sl",
+#'   "sv", "sw", "th", "tr", "uk", "zh-CN", and "zh-TW".
+#' @param separator String to display between the start and end input boxes.
+#'
+#' @seealso \code{\link{dateInput}}, \code{\link{updateDateRangeInput}}
+#'
+#' @examples
+#' dateRangeInput("daterange", "Date range:",
+#'                start = "2001-01-01",
+#'                end   = "2010-12-31")
+#'
+#' # Default start and end is the current date in the client's time zone
+#' dateRangeInput("daterange", "Date range:")
+#'
+#' # start and end are always specified in yyyy-mm-dd, even if the display
+#' # format is different
+#' dateRangeInput("daterange", "Date range:",
+#'                start  = "2001-01-01",
+#'                end    = "2010-12-31",
+#'                min    = "2001-01-01",
+#'                max    = "2012-12-21",
+#'                format = "mm/dd/yy",
+#'                separator = " - ")
+#'
+#' # Pass in Date objects
+#' dateRangeInput("daterange", "Date range:",
+#'                start = Sys.Date()-10,
+#'                end = Sys.Date()+10)
+#'
+#' # Use different language and different first day of week
+#' dateRangeInput("daterange", "Date range:",
+#'                language = "de",
+#'                weekstart = 1)
+#'
+#' # Start with decade view instead of default month view
+#' dateRangeInput("daterange", "Date range:",
+#'                startview = "decade")
+#'
+#' @export
+dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
+    min = NULL, max = NULL, format = "yyyy-mm-dd", startview = "month",
+    weekstart = 0, language = "en", separator = " to ") {
+
+  # If start and end are date objects, convert to a string with yyyy-mm-dd format
+  # Same for min and max
+  if (inherits(start, "Date"))  start <- format(start, "%Y-%m-%d")
+  if (inherits(end,   "Date"))  end   <- format(end,   "%Y-%m-%d")
+  if (inherits(min,   "Date"))  min   <- format(min,   "%Y-%m-%d")
+  if (inherits(max,   "Date"))  max   <- format(max,   "%Y-%m-%d")
+
+  tagList(
+    singleton(tags$head(
+      tags$script(src = "shared/datepicker/js/bootstrap-datepicker.min.js"),
+      tags$link(rel = "stylesheet", type = "text/css",
+                href = 'shared/datepicker/css/datepicker.css')
+    )),
+    tags$div(id = inputId,
+             # input-daterange class is needed for dropdown behavior
+             class = "shiny-date-range-input input-daterange",
+
+      controlLabel(inputId, label),
+      tags$input(class = "input-small",
+                 type = "text",
+                 `data-date-language` = language,
+                 `data-date-weekstart` = weekstart,
+                 `data-date-format` = format,
+                 `data-date-start-view` = startview,
+                 `data-min-date` = min,
+                 `data-max-date` = max,
+                 `data-initial-date` = start
+                 ),
+      HTML(separator),
+      tags$input(class = "input-small",
+                 type = "text",
+                 `data-date-language` = language,
+                 `data-date-weekstart` = weekstart,
+                 `data-date-format` = format,
+                 `data-date-start-view` = startview,
+                 `data-min-date` = min,
+                 `data-max-date` = max,
+                 `data-initial-date` = end
+                 )
+    )
   )
 }
 
@@ -642,6 +924,8 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
 #'   that this tab is selected. If omitted and \code{tabsetPanel} has an 
 #'   \code{id}, then the title will be used.
 #' @return A tab that can be passed to \code{\link{tabsetPanel}}
+#'
+#' @seealso \code{\link{tabsetPanel}}
 #'   
 #' @examples
 #' # Show a tabset that includes a plot, summary, and
@@ -668,8 +952,13 @@ tabPanel <- function(title, ..., value = NULL) {
 #'   logic to determine which of the current tabs is active. The value will 
 #'   correspond to the \code{value} argument that is passed to 
 #'   \code{\link{tabPanel}}.
+#' @param selected The \code{value} (or, if none was supplied, the \code{title})
+#'   of the tab that should be selected by default. If \code{NULL}, the first
+#'   tab will be selected.
 #' @return A tabset that can be passed to \code{\link{mainPanel}}
 #'   
+#' @seealso \code{\link{tabPanel}}, \code{\link{updateTabsetPanel}}
+#'
 #' @examples
 #' # Show a tabset that includes a plot, summary, and
 #' # table view of the generated distribution
@@ -681,7 +970,7 @@ tabPanel <- function(title, ..., value = NULL) {
 #'   )
 #' )
 #' @export
-tabsetPanel <- function(..., id = NULL) {
+tabsetPanel <- function(..., id = NULL, selected = NULL) {
   
   # build tab-nav and tab-content divs
   tabs <- list(...)
@@ -708,8 +997,13 @@ tabsetPanel <- function(..., id = NULL) {
                             `data-value` = tabValue,
                             divTag$attribs$title))
     
-    # set the first tab as active
-    if (firstTab) {
+    if (is.null(tabValue)) {
+      tabValue <- divTag$attribs$title
+    }
+
+    # If appropriate, make this the selected tab
+    if ((firstTab && is.null(selected)) ||
+        (!is.null(selected) && identical(selected, tabValue))) {
       liTag$attribs$class <- "active"
       divTag$attribs$class <- "tab-pane active"
       firstTab = FALSE

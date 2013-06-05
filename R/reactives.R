@@ -391,19 +391,21 @@ Observer <- setRefClass(
   fields = list(
     .func = 'function',
     .label = 'character',
+    .priority = 'numeric',
     .invalidateCallbacks = 'list',
     .execCount = 'integer',
     .onResume = 'function',
     .suspended = 'logical'
   ),
   methods = list(
-    initialize = function(func, label, suspended = FALSE) {
+    initialize = function(func, label, suspended = FALSE, priority = 0) {
       if (length(formals(func)) > 0)
         stop("Can't make an observer from a function that takes parameters; ",
              "only functions without parameters can be reactive.")
 
       .func <<- func
       .label <<- label
+      .priority <<- normalizePriority(priority)
       .execCount <<- 0L
       .suspended <<- suspended
       .onResume <<- function() NULL
@@ -421,7 +423,7 @@ Observer <- setRefClass(
         })
 
         continue <- function() {
-          ctx$addPendingFlush()
+          ctx$addPendingFlush(.priority)
         }
         
         if (.suspended == FALSE)
@@ -444,6 +446,13 @@ Observer <- setRefClass(
     onInvalidate = function(func) {
       "Register a function to run when this observer is invalidated"
       .invalidateCallbacks <<- c(.invalidateCallbacks, func)
+    },
+    setPriority = function(priority = 0) {
+      "Change the observer's priority. Note that if the observer is currently
+      invalidated, then the change in priority will not take effect until the
+      next invalidation--unless the observer is also currently suspended, in
+      which case the priority change will be effective upon resume."
+      .priority <<- normalizePriority(priority)
     },
     suspend = function() {
       "Causes this observer to stop scheduling flushes (re-executions) in
@@ -493,6 +502,10 @@ Observer <- setRefClass(
 #' @param label A label for the observer, useful for debugging.
 #' @param suspended If \code{TRUE}, start the observer in a suspended state.
 #'   If \code{FALSE} (the default), start in a non-suspended state.
+#' @param priority An integer or numeric that controls the priority with which
+#'   this observer should be executed. An observer with a given priority level
+#'   will always execute sooner than all observers with a lower priority level. 
+#'   Positive, negative, and zero values are allowed.
 #'
 #' @examples
 #' values <- reactiveValues(A=1)
@@ -514,13 +527,14 @@ Observer <- setRefClass(
 #'
 #' @export
 observe <- function(x, env=parent.frame(), quoted=FALSE, label=NULL,
-                    suspended=FALSE) {
+                    suspended=FALSE, priority=0) {
 
   fun <- exprToFunction(x, env, quoted)
   if (is.null(label))
     label <- deparse(body(fun))
 
-  invisible(Observer$new(fun, label=label, suspended=suspended))
+  invisible(Observer$new(
+    fun, label=label, suspended=suspended, priority=priority))
 }
 
 # ---------------------------------------------------------------------------
@@ -539,15 +553,58 @@ observe <- function(x, env=parent.frame(), quoted=FALSE, label=NULL,
 #' See \code{\link{invalidateLater}} as a safer and simpler alternative.
 #' 
 #' @param intervalMs How often to fire, in milliseconds
+#' @param session A session object. This is needed to cancel any scheduled
+#'   invalidations after a user has ended the session. If \code{NULL}, then
+#'   this invalidation will not be tied to any session, and so it will still
+#'   occur.
 #' @return A no-parameter function that can be called from a reactive context, 
 #'   in order to cause that context to be invalidated the next time the timer 
 #'   interval elapses. Calling the returned function also happens to yield the 
 #'   current time (as in \code{\link{Sys.time}}).
 #' @seealso invalidateLater
+#'
+#' @examples
+#' \dontrun{
+#' shinyServer(function(input, output, session) {
+#'
+#'   # Anything that calls autoInvalidate will automatically invalidate
+#'   # every 2 seconds.
+#'   autoInvalidate <- reactiveTimer(2000, session)
+#'
+#'   observe({
+#'     # Invalidate and re-execute this reactive expression every time the
+#'     # timer fires.
+#'     autoInvalidate()
+#'
+#'     # Do something each time this is invalidated.
+#'     # The isolate() makes this observer _not_ get invalidated and re-executed
+#'     # when input$n changes.
+#'     print(paste("The value of input$n is", isolate(input$n)))
+#'   })
+#'
+#'   # Generate a new histogram each time the timer fires, but not when
+#'   # input$n changes.
+#'   output$plot <- renderPlot({
+#'     autoInvalidate()
+#'     hist(isolate(input$n))
+#'   })
+#' })
+#' }
+#'
 #' @export
-reactiveTimer <- function(intervalMs=1000) {
+reactiveTimer <- function(intervalMs=1000, session) {
+  if (missing(session)) {
+    warning("reactiveTimer should be passed a session object or NULL")
+    session <- NULL
+  }
+
   dependents <- Map$new()
   timerCallbacks$schedule(intervalMs, function() {
+    # Quit if the session is closed
+    if (!is.null(session) && session$isClosed()) {
+      return(invisible())
+    }
+
     timerCallbacks$schedule(intervalMs, sys.function())
     lapply(
       dependents$values(),
@@ -574,10 +631,48 @@ reactiveTimer <- function(intervalMs=1000) {
 #' of milliseconds.
 #' @param millis Approximate milliseconds to wait before invalidating the
 #'   current reactive context.
+#' @param session A session object. This is needed to cancel any scheduled
+#'   invalidations after a user has ended the session. If \code{NULL}, then
+#'   this invalidation will not be tied to any session, and so it will still
+#'   occur.
+#'
+#' @examples
+#' \dontrun{
+#' shinyServer(function(input, output, session) {
+#'
+#'   observe({
+#'     # Re-execute this reactive expression after 1000 milliseconds
+#'     invalidateLater(1000, session)
+#'
+#'     # Do something each time this is invalidated.
+#'     # The isolate() makes this observer _not_ get invalidated and re-executed
+#'     # when input$n changes.
+#'     print(paste("The value of input$n is", isolate(input$n)))
+#'   })
+#'
+#'   # Generate a new histogram at timed intervals, but not when
+#'   # input$n changes.
+#'   output$plot <- renderPlot({
+#'     # Re-execute this reactive expression after 2000 milliseconds
+#'     invalidateLater(2000, session)
+#'     hist(isolate(input$n))
+#'   })
+#' })
+#' }
+#'
 #' @export
-invalidateLater <- function(millis) {
+invalidateLater <- function(millis, session) {
+  if (missing(session)) {
+    warning("invalidateLater should be passed a session object or NULL")
+    session <- NULL
+  }
+
   ctx <- .getReactiveEnvironment()$currentContext()
   timerCallbacks$schedule(millis, function() {
+    # Quit if the session is closed
+    if (!is.null(session) && session$isClosed()) {
+      return(invisible())
+    }
     ctx$invalidate()
   })
   invisible()

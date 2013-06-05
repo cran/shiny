@@ -55,6 +55,11 @@ repeatable <- function(rngfunc, seed = runif(1, 0, .Machine$integer.max)) {
   paste(x, y, sep='')
 }
 
+# Given a vector or list, drop all the NULL items in it
+dropNulls <- function(x) {
+  x[!vapply(x, is.null, FUN.VALUE=logical(1))]
+}
+
 knownContentTypes <- Map$new()
 knownContentTypes$mset(
   html='text/html; charset=UTF-8',
@@ -266,3 +271,40 @@ shinyDeprecated <- function(new=NULL, msg=NULL,
   # Similar to .Deprecated(), but print a message instead of warning
   message(msg)
 }
+
+Callbacks <- setRefClass(
+  'Callbacks',
+  fields = list(
+    .nextId = 'integer',
+    .callbacks = 'Map'
+  ),
+  methods = list(
+    initialize = function() {
+      .nextId <<- as.integer(.Machine$integer.max)
+    },
+    register = function(callback) {
+      id <- as.character(.nextId)
+      .nextId <<- .nextId - 1L
+      .callbacks$set(id, callback)
+      return(function() {
+        .callbacks$remove(id)
+      })
+    },
+    invoke = function(..., onError=NULL) {
+      for (callback in .callbacks$values()) {
+        tryCatch(
+          do.call(callback, list(...)),
+          error = function(e) {
+            if (is.null(onError))
+              stop(e)
+            else
+              onError(e)
+          }
+        )
+      }
+    },
+    count = function() {
+      .callbacks$size()
+    }
+  )
+)
