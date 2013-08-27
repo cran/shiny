@@ -663,3 +663,35 @@ test_that("Observer priorities are respected", {
   
   expect_identical(results, c(30, 20, 21, 22, 10))
 })
+
+test_that("reactivePoll and reactiveFileReader", {
+  path <- tempfile('file')
+  on.exit(unlink(path))
+  write.csv(cars, file=path, row.names=FALSE)
+  rfr <- reactiveFileReader(100, NULL, path, read.csv)
+  expect_equal(isolate(rfr()), cars)
+  
+  write.csv(rbind(cars, cars), file=path, row.names=FALSE)
+  Sys.sleep(0.15)
+  timerCallbacks$executeElapsed()
+  expect_equal(isolate(rfr()), cars)
+  flushReact()
+  expect_equal(isolate(rfr()), rbind(cars, cars))
+})
+
+
+test_that("classes of reactive object", {
+  v <- reactiveValues(a = 1)
+  r <- reactive({ v$a + 1 })
+  o <- observe({ print(r()) })
+
+  expect_false(is.reactivevalues(12))
+  expect_true(is.reactivevalues(v))
+  expect_false(is.reactivevalues(r))
+  expect_false(is.reactivevalues(o))
+
+  expect_false(is.reactive(12))
+  expect_false(is.reactive(v))
+  expect_true(is.reactive(r))
+  expect_false(is.reactive(o))
+})

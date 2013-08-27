@@ -1,5 +1,18 @@
+#' Web Application Framework for R
+#' 
+#' Shiny makes it incredibly easy to build interactive web applications with R. 
+#' Automatic "reactive" binding between inputs and outputs and extensive 
+#' pre-built widgets make it possible to build beautiful, responsive, and 
+#' powerful applications with minimal effort.
+#' 
+#' The Shiny tutorial at \url{http://rstudio.github.com/shiny/tutorial} explains
+#' the framework in depth, walks you through building a simple application, and
+#' includes extensive annotated examples.
+#' 
+#' @name shiny-package
+#' @aliases shiny
 #' @docType package
-#' @import httpuv caTools RJSONIO xtable digest
+#' @import httpuv caTools RJSONIO xtable digest methods
 NULL
 
 suppressPackageStartupMessages({
@@ -26,17 +39,22 @@ ShinySession <- setRefClass(
     .input      = 'ReactiveValues', # Internal object for normal input sent from client
     .clientData = 'ReactiveValues', # Internal object for other data sent from the client
     .closedCallbacks = 'Callbacks',
+    .flushCallbacks = 'Callbacks',
+    .flushedCallbacks = 'Callbacks',
     input       = 'reactivevalues', # Externally-usable S3 wrapper object for .input
+    output      = 'ANY',    # Externally-usable S3 wrapper object for .outputs
     clientData  = 'reactivevalues', # Externally-usable S3 wrapper object for .clientData
     token = 'character',  # Used to identify this instance in URLs
     files = 'Map',        # For keeping track of files sent to client
     downloads = 'Map',
     closed = 'logical',
-    session = 'list'      # Object for the server app to access session stuff
+    session = 'environment',      # Object for the server app to access session stuff
+    .workerId = 'character'
   ),
   methods = list(
-    initialize = function(websocket) {
+    initialize = function(websocket, workerId) {
       .websocket <<- websocket
+      .workerId <<- workerId
       .invalidatedOutputValues <<- Map$new()
       .invalidatedOutputErrors <<- Map$new()
       .inputMessageQueue <<- list()
@@ -49,17 +67,36 @@ ShinySession <- setRefClass(
       .clientData <<- ReactiveValues$new()
 
       input      <<- .createReactiveValues(.input,      readonly=TRUE)
+      .setLabel(input, 'input')
       clientData <<- .createReactiveValues(.clientData, readonly=TRUE)
+      .setLabel(clientData, 'clientData')
+      
+      output     <<- .createOutputWriter(.self)
       
       token <<- createUniqueId(16)
       .outputs <<- list()
       .outputOptions <<- list()
 
-      session <<- list(clientData        = clientData,
-                       sendCustomMessage = .self$.sendCustomMessage,
-                       sendInputMessage  = .self$.sendInputMessage,
-                       onSessionEnded    = .self$onSessionEnded,
-                       isClosed          = .self$isClosed)
+      session <<- new.env(parent=emptyenv())
+      session$clientData        <<- clientData
+      session$sendCustomMessage <<- .self$.sendCustomMessage
+      session$sendInputMessage  <<- .self$.sendInputMessage
+      session$onSessionEnded    <<- .self$onSessionEnded
+      session$onFlush           <<- .self$onFlush
+      session$onFlushed         <<- .self$onFlushed
+      session$isClosed          <<- .self$isClosed
+      session$input             <<- .self$input
+      session$output            <<- .self$output
+      session$.impl             <<- .self
+      # session$request should throw an error if httpuv doesn't have
+      # websocket$request, but don't throw it until a caller actually
+      # tries to access session$request
+      delayedAssign('request', websocket$request, assign.env = session)
+      
+      .write(toJSON(list(config = list(
+        workerId = .workerId,
+        sessionId = token
+      ))))
     },
     onSessionEnded = function(callback) {
       "Registers the given callback to be invoked when the session is closed
@@ -123,7 +160,7 @@ ShinySession <- setRefClass(
           }
           else
             .invalidatedOutputValues$set(name, value)
-        }, label=label, suspended=.shouldSuspend(name))
+        }, suspended=.shouldSuspend(name), label=sprintf('output$%s <- %s', name, paste(label, collapse='\n')))
         
         obs$onInvalidate(function() {
           showProgress(name)
@@ -138,6 +175,9 @@ ShinySession <- setRefClass(
       }
     },
     flushOutput = function() {
+
+      .flushCallbacks$invoke()
+      on.exit(.flushedCallbacks$invoke())
 
       if (length(.progressKeys) == 0
           && length(.invalidatedOutputValues) == 0
@@ -221,6 +261,28 @@ ShinySession <- setRefClass(
       # Add to input message queue
       .inputMessageQueue[[length(.inputMessageQueue) + 1]] <<- data
     },
+    onFlush = function(func, once = TRUE) {
+      if (!isTRUE(once)) {
+        return(.flushCallbacks$register(func))
+      } else {
+        dereg <- .flushCallbacks$register(function() {
+          dereg()
+          func()
+        })
+        return(dereg)
+      }
+    },
+    onFlushed = function(func, once = TRUE) {
+      if (!isTRUE(once)) {
+        return(.flushedCallbacks$register(func))
+      } else {
+        dereg <- .flushedCallbacks$register(function() {
+          dereg()
+          func()
+        })
+        return(dereg)
+      }
+    },
     .write = function(json) {
       if (getOption('shiny.trace', FALSE))
         message('SEND ', 
@@ -245,7 +307,9 @@ ShinySession <- setRefClass(
 
       jobId <- .fileUploadContext$createUploadOperation(fileInfos)
       return(list(jobId=jobId,
-                  uploadUrl=paste('session', token, 'upload', jobId, sep='/')))
+                  uploadUrl=paste('session', token, 'upload', 
+                                  paste(jobId, "?w=", .workerId,sep=""), 
+                                  sep='/')))
     },
     `@uploadEnd` = function(jobId, inputId) {
       fileData <- .fileUploadContext$getUploadOperation(jobId)$finish()
@@ -364,9 +428,10 @@ ShinySession <- setRefClass(
       "Creates an entry in the file map for the data, and returns a URL pointing
       to the file."
       files$set(name, list(data=data, contentType=contentType))
-      return(sprintf('session/%s/file/%s?%s',
+      return(sprintf('session/%s/file/%s?w=%s&r=%s',
                      URLencode(token, TRUE),
                      URLencode(name, TRUE),
+                     .workerId,
                      createUniqueId(8)))
     },
     # Send a file to the client
@@ -379,7 +444,7 @@ ShinySession <- setRefClass(
         return(NULL)
 
       fileData <- readBin(file, 'raw', n=bytes)
-
+      
       if (isTRUE(.clientData$.values$allowDataUriScheme)) {
         b64 <- base64encode(fileData)
         return(paste('data:', contentType, ';base64,', b64, sep=''))
@@ -392,9 +457,10 @@ ShinySession <- setRefClass(
       downloads$set(name, list(filename = filename,
                                contentType = contentType,
                                func = func))
-      return(sprintf('session/%s/download/%s',
+      return(sprintf('session/%s/download/%s?w=%s',
                      URLencode(token, TRUE),
-                     URLencode(name, TRUE)))
+                     URLencode(name, TRUE),
+                     .workerId))
     },
     .getOutputOption = function(outputName, propertyName, defaultValue) {
       opts <- .outputOptions[[outputName]]
@@ -583,7 +649,7 @@ httpResponse <- function(status = 200,
   return(resp)
 }
 
-httpServer <- function(handlers) {
+httpServer <- function(handlers, sharedSecret) {
   handler <- joinHandlers(handlers)
 
   # TODO: Figure out what this means after httpuv migration
@@ -592,6 +658,13 @@ httpServer <- function(handlers) {
     filter <- function(req, response) response
   
   function(req) {
+    if (!is.null(sharedSecret)
+        && !identical(sharedSecret, req$HTTP_SHINY_SHARED_SECRET)) {
+      return(list(status=403,
+                  body='<h1>403 Forbidden</h1><p>Shared secret mismatch</p>',
+                  headers=list('Content-Type' = 'text/html')))
+    }
+
     response <- handler(req)
     if (is.null(response))
       response <- httpResponse(404, content="<h1>Not Found</h1>")
@@ -630,6 +703,20 @@ joinHandlers <- function(handlers) {
     }
     return(NULL)
   }
+}
+
+reactLogHandler <- function(req) {
+  if (!identical(req$PATH_INFO, '/reactlog'))
+    return(NULL)
+  
+  if (!getOption('shiny.reactlog', FALSE)) {
+    return(NULL)
+  }
+  
+  return(httpResponse(
+    status=200,
+    content=list(file=renderReactLog(), owned=TRUE)
+  ))
 }
 
 sessionHandler <- function(req) {
@@ -910,7 +997,7 @@ file.path.ci <- function(dir, name) {
 
 # Instantiates the app in the current working directory.
 # port - The TCP port that the application should listen on.
-startAppDir <- function(port=8101L) {
+startAppDir <- function(port=8101L, workerId) {
   globalR <- file.path.ci(getwd(), 'global.R')
   uiR <- file.path.ci(getwd(), 'ui.R')
   serverR <- file.path.ci(getwd(), 'server.R')
@@ -946,11 +1033,12 @@ startAppDir <- function(port=8101L) {
   startApp(
     c(dynamicHandler(uiR), wwwDir),
     serverFuncSource,
-    port
+    port,
+    workerId
   )
 }
 
-startAppObj <- function(ui, serverFunc, port) {
+startAppObj <- function(ui, serverFunc, port, workerId) {
   uiHandler <- function(req) {
     if (!identical(req$REQUEST_METHOD, 'GET'))
       return(NULL)
@@ -968,12 +1056,17 @@ startAppObj <- function(ui, serverFunc, port) {
   
   startApp(uiHandler,
              function() { serverFunc },
-             port)
+             port, workerId)
 }
 
-startApp <- function(httpHandlers, serverFuncSource, port) {
+startApp <- function(httpHandlers, serverFuncSource, port, workerId) {
   
   sys.www.root <- system.file('www', package='shiny')
+  
+  # This value, if non-NULL, must be present on all HTTP and WebSocket
+  # requests as the Shiny-Shared-Secret header or else access will be
+  # denied (403 response for HTTP, and instant close for websocket).
+  sharedSecret <- getOption('shiny.sharedSecret', NULL)
   
   httpuvCallbacks <- list(
     onHeaders = function(req) {
@@ -1001,9 +1094,15 @@ startApp <- function(httpHandlers, serverFuncSource, port) {
     call = httpServer(c(sessionHandler,
                         httpHandlers,
                         sys.www.root,
-                        resourcePathHandler)),
+                        resourcePathHandler,
+                        reactLogHandler), sharedSecret),
     onWSOpen = function(ws) {
-      shinysession <- ShinySession$new(ws)
+      if (!is.null(sharedSecret)
+          && !identical(sharedSecret, ws$request$HTTP_SHINY_SHARED_SECRET)) {
+        ws$close()
+      }
+
+      shinysession <- ShinySession$new(ws, workerId)
       appsByToken$set(shinysession$token, shinysession)
       
       ws$onMessage(function(binary, msg) {
@@ -1089,7 +1188,28 @@ startApp <- function(httpHandlers, serverFuncSource, port) {
           shinysession$dispatch(msg)
         )
         shinysession$manageHiddenOutputs()
-        flushReact()
+
+        if (exists(".shiny__stdout", globalenv()) &&
+            exists("HTTP_GUID", ws$request)) {
+          # safe to assume we're in shiny-server
+          shiny_stdout <- get(".shiny__stdout", globalenv())
+
+          # eNter a flushReact
+          writeLines(paste("_n_flushReact ", get("HTTP_GUID", ws$request),
+                           " @ ", sprintf("%.3f", as.numeric(Sys.time())), 
+                           sep=""), con=shiny_stdout)
+          flush(shiny_stdout)
+
+          flushReact()
+
+          # eXit a flushReact
+          writeLines(paste("_x_flushReact ", get("HTTP_GUID", ws$request),
+                           " @ ", sprintf("%.3f", as.numeric(Sys.time())),
+                           sep=""), con=shiny_stdout)
+          flush(shiny_stdout)
+        } else {
+          flushReact()
+        }
         lapply(appsByToken$values(), function(shinysession) {
           shinysession$flushOutput()
           NULL
@@ -1154,6 +1274,8 @@ serviceApp <- function(ws_env) {
 #' @param launch.browser If true, the system's default web browser will be 
 #'   launched automatically after the app is started. Defaults to true in 
 #'   interactive sessions only.
+#' @param workerId Can generally be ignored. Exists to help some editions of
+#'   Shiny Server Pro route requests to the correct process.
 #'
 #' @examples
 #' \dontrun{
@@ -1179,12 +1301,13 @@ serviceApp <- function(ws_env) {
 runApp <- function(appDir=getwd(),
                    port=8100L,
                    launch.browser=getOption('shiny.launch.browser',
-                                            interactive())) {
+                                            interactive()), 
+                   workerId="") {
 
   # Make warnings print immediately
   ops <- options(warn = 1)
   on.exit(options(ops))
-
+  
   if (nzchar(Sys.getenv('SHINY_PORT'))) {
     # If SHINY_PORT is set, we're running under Shiny Server. Check the version
     # to make sure it is compatible. Older versions of Shiny Server don't set
@@ -1198,14 +1321,14 @@ runApp <- function(appDir=getwd(),
   }
 
   require(shiny)
-
+  
   if (is.character(appDir)) {
     orig.wd <- getwd()
     setwd(appDir)
     on.exit(setwd(orig.wd), add = TRUE)
-    server <- startAppDir(port=port)
+    server <- startAppDir(port=port, workerId)
   } else {
-    server <- startAppObj(appDir$ui, appDir$server, port=port)
+    server <- startAppObj(appDir$ui, appDir$server, port=port, workerId)
   }
   
   on.exit({
@@ -1217,8 +1340,10 @@ runApp <- function(appDir=getwd(),
     utils::browseURL(appUrl)
   }
   
+  .globals$retval <- NULL
+  .globals$stopped <- FALSE
   tryCatch(
-    while (TRUE) {
+    while (!.globals$stopped) {
       serviceApp()
       Sys.sleep(0.001)
     },
@@ -1226,6 +1351,23 @@ runApp <- function(appDir=getwd(),
       timerCallbacks$clear()
     }
   )
+  
+  return(.globals$retval)
+}
+
+#' Stop the currently running Shiny app
+#' 
+#' Stops the currently running Shiny app, returning control to the caller of 
+#' \code{\link{runApp}}.
+#' 
+#' @param returnValue The value that should be returned from
+#'   \code{\link{runApp}}.
+#'   
+#' @export
+stopApp <- function(returnValue = NULL) {
+  .globals$retval <- returnValue
+  .globals$stopped <- TRUE
+  httpuv::interrupt()
 }
 
 #' Run Shiny Example Applications

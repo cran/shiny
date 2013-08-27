@@ -4,13 +4,18 @@ Dependents <- setRefClass(
     .dependents = 'Map'
   ),
   methods = list(
-    register = function() {
+    register = function(depId=NULL, depLabel=NULL) {
       ctx <- .getReactiveEnvironment()$currentContext()
       if (!.dependents$containsKey(ctx$id)) {
         .dependents$set(ctx$id, ctx)
         ctx$onInvalidate(function() {
           .dependents$remove(ctx$id)
         })
+        
+        if (!is.null(depId) && nchar(depId) > 0)
+          .graphDependsOnId(ctx$id, depId)
+        if (!is.null(depLabel))
+          .graphDependsOn(ctx$id, depLabel)
       }
     },
     invalidate = function() {
@@ -31,6 +36,8 @@ Dependents <- setRefClass(
 ReactiveValues <- setRefClass(
   'ReactiveValues',
   fields = list(
+    # For debug purposes
+    .label = 'character',
     .values = 'environment',
     .dependents = 'environment',
     # Dependents for the list of all names, including hidden
@@ -42,6 +49,8 @@ ReactiveValues <- setRefClass(
   ),
   methods = list(
     initialize = function() {
+      .label <<- paste('reactiveValues', runif(1, min=1000, max=9999),
+                       sep="")
       .values <<- new.env(parent=emptyenv())
       .dependents <<- new.env(parent=emptyenv())
     },
@@ -49,6 +58,7 @@ ReactiveValues <- setRefClass(
       ctx <- .getReactiveEnvironment()$currentContext()
       dep.key <- paste(key, ':', ctx$id, sep='')
       if (!exists(dep.key, where=.dependents, inherits=FALSE)) {
+        .graphDependsOn(ctx$id, sprintf('%s$%s', .label, key))
         assign(dep.key, ctx, pos=.dependents, inherits=FALSE)
         ctx$onInvalidate(function() {
           rm(list=dep.key, pos=.dependents, inherits=FALSE)
@@ -76,8 +86,13 @@ ReactiveValues <- setRefClass(
         .allValuesDeps$invalidate()
       else
         .valuesDeps$invalidate()
-      
+
       assign(key, value, pos=.values, inherits=FALSE)
+
+      .graphValueChange(sprintf('names(%s)', .label), ls(.values, all.names=TRUE))
+      .graphValueChange(sprintf('%s (all)', .label), as.list(.values))
+      .graphValueChange(sprintf('%s$%s', .label, key), value)
+
       dep.keys <- objects(
         pos=.dependents,
         pattern=paste('^\\Q', key, ':', '\\E', '\\d+$', sep=''),
@@ -99,16 +114,23 @@ ReactiveValues <- setRefClass(
              })
     },
     names = function() {
+      .graphDependsOn(.getReactiveEnvironment()$currentContext()$id,
+                      sprintf('names(%s)', .label))
       .namesDeps$register()
       return(ls(.values, all.names=TRUE))
     },
     toList = function(all.names=FALSE) {
+      .graphDependsOn(.getReactiveEnvironment()$currentContext()$id,
+                      sprintf('%s (all)', .label))
       if (all.names)
         .allValuesDeps$register()
 
       .valuesDeps$register()
 
       return(as.list(.values, all.names=all.names))
+    },
+    .setLabel = function(label) {
+      .label <<- label
     }
   )
 )
@@ -151,7 +173,7 @@ ReactiveValues <- setRefClass(
 #' @param ... Objects that will be added to the reactivevalues object. All of
 #'   these objects must be named.
 #'
-#' @seealso \code{\link{isolate}}.
+#' @seealso \code{\link{isolate}} and \code{\link{is.reactivevalues}}.
 #'
 #' @export
 reactiveValues <- function(...) {
@@ -176,6 +198,15 @@ setOldClass("reactivevalues")
 .createReactiveValues <- function(values = NULL, readonly = FALSE) {
   structure(list(impl=values), class='reactivevalues', readonly=readonly)
 }
+
+#' Checks whether an object is a reactivevalues object
+#'
+#' Checks whether its argument is a reactivevalues object.
+#'
+#' @param x The object to test.
+#' @seealso \code{\link{reactiveValues}}.
+#' @export
+is.reactivevalues <- function(x) inherits(x, 'reactivevalues')
 
 #' @S3method $ reactivevalues
 `$.reactivevalues` <- function(x, name) {
@@ -231,6 +262,11 @@ as.list.reactivevalues <- function(x, all.names=FALSE, ...) {
   reactiveValuesToList(x, all.names)
 }
 
+# For debug purposes
+.setLabel <- function(x, label) {
+  .subset2(x, 'impl')$.setLabel(label)
+}
+
 #' Convert a reactivevalues object to a list
 #'
 #' This function does something similar to what you might \code{\link{as.list}}
@@ -269,7 +305,8 @@ Observable <- setRefClass(
     .running = 'logical',
     .value = 'ANY',
     .visible = 'logical',
-    .execCount = 'integer'
+    .execCount = 'integer',
+    .mostRecentCtxId = 'character'
   ),
   methods = list(
     initialize = function(func, label=deparse(substitute(func))) {
@@ -282,6 +319,7 @@ Observable <- setRefClass(
       .running <<- FALSE
       .label <<- label
       .execCount <<- 0L
+      .mostRecentCtxId <<- ""
     },
     getValue = function() {
       .dependents$register()
@@ -289,6 +327,8 @@ Observable <- setRefClass(
       if (.invalidated || .running) {
         .self$.updateValue()
       }
+
+      .graphDependsOnId(getCurrentContext()$id, .mostRecentCtxId)
       
       if (identical(class(.value), 'try-error'))
         stop(attr(.value, 'condition'))
@@ -299,7 +339,8 @@ Observable <- setRefClass(
         invisible(.value)
     },
     .updateValue = function() {
-      ctx <- Context$new(.label)
+      ctx <- Context$new(.label, type='observable', prevId=.mostRecentCtxId)
+      .mostRecentCtxId <<- ctx$id
       ctx$onInvalidate(function() {
         .invalidated <<- TRUE
         .dependents$invalidate()
@@ -337,7 +378,8 @@ Observable <- setRefClass(
 #' See the \href{http://rstudio.github.com/shiny/tutorial/}{Shiny tutorial} for
 #' more information about reactive expressions.
 #'
-#' @param x An expression (quoted or unquoted).
+#' @param x For \code{reactive}, an expression (quoted or unquoted). For 
+#'   \code{is.reactive}, an object to test.
 #' @param env The parent environment for the reactive expression. By default, this
 #'   is the calling environment, the same as when defining an ordinary
 #'   non-reactive expression.
@@ -345,6 +387,7 @@ Observable <- setRefClass(
 #'   This is useful when you want to use an expression that is stored in a
 #'   variable; to do so, it must be quoted with `quote()`.
 #' @param label A label for the reactive expression, useful for debugging.
+#' @return a function, wrapped in a S3 class "reactive"
 #'
 #' @examples
 #' values <- reactiveValues(A=1)
@@ -369,10 +412,21 @@ Observable <- setRefClass(
 reactive <- function(x, env = parent.frame(), quoted = FALSE, label = NULL) {
   fun <- exprToFunction(x, env, quoted)
   if (is.null(label))
-    label <- deparse(body(fun))
+    label <- sprintf('reactive(%s)', paste(deparse(body(fun)), collapse='\n'))
 
-  Observable$new(fun, label)$getValue
+  o <- Observable$new(fun, label)
+  structure(o$getValue@.Data, observable = o, class = "reactive")
 }
+
+#' @S3method print reactive
+print.reactive <- function(x, ...) {
+  label <- attr(x, "observable")$.label
+  cat(label, "\n")
+}
+
+#' @export
+#' @rdname reactive
+is.reactive <- function(x) inherits(x, "reactive")
 
 # Return the number of times that a reactive expression or observer has been run
 execCount <- function(x) {
@@ -395,7 +449,8 @@ Observer <- setRefClass(
     .invalidateCallbacks = 'list',
     .execCount = 'integer',
     .onResume = 'function',
-    .suspended = 'logical'
+    .suspended = 'logical',
+    .prevId = 'character'
   ),
   methods = list(
     initialize = function(func, label, suspended = FALSE, priority = 0) {
@@ -409,12 +464,14 @@ Observer <- setRefClass(
       .execCount <<- 0L
       .suspended <<- suspended
       .onResume <<- function() NULL
+      .prevId <<- ''
 
       # Defer the first running of this until flushReact is called
       .createContext()$invalidate()
     },
     .createContext = function() {
-      ctx <- Context$new(.label)
+      ctx <- Context$new(.label, type='observer', prevId=.prevId)
+      .prevId <<- ctx$id
 
       ctx$onInvalidate(function() {
         lapply(.invalidateCallbacks, function(func) {
@@ -443,12 +500,14 @@ Observer <- setRefClass(
       .execCount <<- .execCount + 1L
       ctx$run(.func)
     },
-    onInvalidate = function(func) {
-      "Register a function to run when this observer is invalidated"
-      .invalidateCallbacks <<- c(.invalidateCallbacks, func)
+    onInvalidate = function(callback) {
+      "Register a callback function to run when this observer is invalidated.
+      No arguments will be provided to the callback function when it is
+      invoked."
+      .invalidateCallbacks <<- c(.invalidateCallbacks, callback)
     },
     setPriority = function(priority = 0) {
-      "Change the observer's priority. Note that if the observer is currently
+      "Change this observer's priority. Note that if the observer is currently
       invalidated, then the change in priority will not take effect until the
       next invalidation--unless the observer is also currently suspended, in
       which case the priority change will be effective upon resume."
@@ -458,7 +517,7 @@ Observer <- setRefClass(
       "Causes this observer to stop scheduling flushes (re-executions) in
       response to invalidations. If the observer was invalidated prior to this
       call but it has not re-executed yet (because it waits until onFlush is
-      called) then that re-execution will still occur, becasue the flush is
+      called) then that re-execution will still occur, because the flush is
       already scheduled."
       .suspended <<- TRUE
     },
@@ -478,10 +537,12 @@ Observer <- setRefClass(
 
 #' Create a reactive observer
 #' 
-#' Creates an observer from the given expression An observer is like a reactive
+#' Creates an observer from the given expression.
+#' 
+#' An observer is like a reactive
 #' expression in that it can read reactive values and call reactive expressions, and
 #' will automatically re-execute when those dependencies change. But unlike 
-#' reactive expression, it doesn't yield a result and can't be used as an input 
+#' reactive expressions, it doesn't yield a result and can't be used as an input 
 #' to other reactive expressions. Thus, observers are only useful for their side 
 #' effects (for example, performing I/O).
 #' 
@@ -506,6 +567,32 @@ Observer <- setRefClass(
 #'   this observer should be executed. An observer with a given priority level
 #'   will always execute sooner than all observers with a lower priority level. 
 #'   Positive, negative, and zero values are allowed.
+#' @return An observer reference class object. This object has the following 
+#'   methods:
+#'   \describe{
+#'     \item{\code{suspend()}}{
+#'       Causes this observer to stop scheduling flushes (re-executions) in
+#'       response to invalidations. If the observer was invalidated prior to 
+#'       this call but it has not re-executed yet then that re-execution will
+#'       still occur, because the flush is already scheduled.
+#'     }
+#'     \item{\code{resume()}}{
+#'       Causes this observer to start re-executing in response to
+#'       invalidations. If the observer was invalidated while suspended, then it
+#'       will schedule itself for re-execution.
+#'     }
+#'     \item{\code{setPriority(priority = 0)}}{
+#'       Change this observer's priority. Note that if the observer is currently 
+#'       invalidated, then the change in priority will not take effect until the
+#'       next invalidation--unless the observer is also currently suspended, in 
+#'       which case the priority change will be effective upon resume.
+#'     }
+#'     \item{\code{onInvalidate(callback)}}{
+#'       Register a callback function to run when this observer is invalidated.
+#'       No arguments will be provided to the callback function when it is
+#'       invoked.
+#'     }
+#'   }
 #'
 #' @examples
 #' values <- reactiveValues(A=1)
@@ -531,7 +618,7 @@ observe <- function(x, env=parent.frame(), quoted=FALSE, label=NULL,
 
   fun <- exprToFunction(x, env, quoted)
   if (is.null(label))
-    label <- deparse(body(fun))
+    label <- sprintf('observe(%s)', paste(deparse(body(fun)), collapse='\n'))
 
   invisible(Observer$new(
     fun, label=label, suspended=suspended, priority=priority))
@@ -678,6 +765,168 @@ invalidateLater <- function(millis, session) {
   invisible()
 }
 
+coerceToFunc <- function(x) {
+  force(x);
+  if (is.function(x))
+    return(x)
+  else
+    return(function() x)
+}
+
+#' Reactive polling
+#' 
+#' Used to create a reactive data source, which works by periodically polling a 
+#' non-reactive data source.
+#' 
+#' \code{reactivePoll} works by pairing a relatively cheap "check" function with
+#' a more expensive value retrieval function. The check function will be 
+#' executed periodically and should always return a consistent value until the 
+#' data changes. When the check function returns a different value, then the 
+#' value retrieval function will be used to re-populate the data.
+#' 
+#' Note that the check function doesn't return \code{TRUE} or \code{FALSE} to 
+#' indicate whether the underlying data has changed. Rather, the check function 
+#' indicates change by returning a different value from the previous time it was
+#' called.
+#' 
+#' For example, \code{reactivePoll} is used to implement 
+#' \code{reactiveFileReader} by pairing a check function that simply returns the
+#' last modified timestamp of a file, and a value retrieval function that 
+#' actually reads the contents of the file.
+#' 
+#' As another example, one might read a relational database table reactively by 
+#' using a check function that does \code{SELECT MAX(timestamp) FROM table} and 
+#' a value retrieval function that does \code{SELECT * FROM table}.
+#' 
+#' The \code{intervalMillis}, \code{checkFunc}, and \code{valueFunc} functions
+#' will be executed in a reactive context; therefore, they may read reactive
+#' values and reactive expressions.
+#' 
+#' @param intervalMillis Approximate number of milliseconds to wait between 
+#'   calls to \code{checkFunc}. This can be either a numeric value, or a 
+#'   function that returns a numeric value.
+#' @param session The user session to associate this file reader with, or 
+#'   \code{NULL} if none. If non-null, the reader will automatically stop when 
+#'   the session ends.
+#' @param checkFunc A relatively cheap function whose values over time will be 
+#'   tested for equality; inequality indicates that the underlying value has 
+#'   changed and needs to be invalidated and re-read using \code{valueFunc}. See
+#'   Details.
+#' @param valueFunc A function that calculates the underlying value. See 
+#'   Details.
+#'   
+#' @return A reactive expression that returns the result of \code{valueFunc}, 
+#'   and invalidates when \code{checkFunc} changes.
+#'   
+#' @seealso \code{\link{reactiveFileReader}}
+#'   
+#' @examples
+#' \dontrun{
+#' # Assume the existence of readTimestamp and readValue functions
+#' shinyServer(function(input, output, session) {
+#'   data <- reactivePoll(1000, session, readTimestamp, readValue)
+#'   output$dataTable <- renderTable({
+#'     data()
+#'   })
+#' })
+#' }
+#'   
+#' @export
+reactivePoll <- function(intervalMillis, session, checkFunc, valueFunc) {
+  intervalMillis <- coerceToFunc(intervalMillis)
+  
+  rv <- reactiveValues(cookie = isolate(checkFunc()))
+  
+  observe({
+    rv$cookie <- checkFunc()
+    invalidateLater(intervalMillis(), session)
+  })
+  
+  # TODO: what to use for a label?
+  re <- reactive({
+    rv$cookie
+    
+    valueFunc()
+    
+  }, label = NULL)
+  
+  return(re)
+}
+
+#' Reactive file reader
+#' 
+#' Given a file path and read function, returns a reactive data source for the 
+#' contents of the file.
+#' 
+#' \code{reactiveFileReader} works by periodically checking the file's last 
+#' modified time; if it has changed, then the file is re-read and any reactive 
+#' dependents are invalidated.
+#' 
+#' The \code{intervalMillis}, \code{filePath}, and \code{readFunc} functions 
+#' will each be executed in a reactive context; therefore, they may read
+#' reactive values and reactive expressions.
+#' 
+#' @param intervalMillis Approximate number of milliseconds to wait between 
+#'   checks of the file's last modified time. This can be a numeric value, or a 
+#'   function that returns a numeric value.
+#' @param session The user session to associate this file reader with, or 
+#'   \code{NULL} if none. If non-null, the reader will automatically stop when 
+#'   the session ends.
+#' @param filePath The file path to poll against and to pass to \code{readFunc}.
+#'   This can either be a single-element character vector, or a function that 
+#'   returns one.
+#' @param readFunc The function to use to read the file; must expect the first 
+#'   argument to be the file path to read. The return value of this function is 
+#'   used as the value of the reactive file reader.
+#' @param ... Any additional arguments to pass to \code{readFunc} whenever it is
+#'   invoked.
+#'   
+#' @return A reactive expression that returns the contents of the file, and 
+#'   automatically invalidates when the file changes on disk (as determined by 
+#'   last modified time).
+#'   
+#' @seealso \code{\link{reactivePoll}}
+#'   
+#' @examples
+#' \dontrun{
+#' # Per-session reactive file reader
+#' shinyServer(function(input, output, session)) {
+#'   fileData <- reactiveFileReader(1000, session, 'data.csv', read.csv)
+#'   
+#'   output$data <- renderTable({
+#'     fileData()
+#'   })
+#' }
+#' 
+#' # Cross-session reactive file reader. In this example, all sessions share
+#' # the same reader, so read.csv only gets executed once no matter how many
+#' # user sessions are connected.
+#' fileData <- reactiveFileReader(1000, session, 'data.csv', read.csv)
+#' shinyServer(function(input, output, session)) {
+#'   output$data <- renderTable({
+#'     fileData()
+#'   })
+#' }
+#' }
+#' 
+#' @export
+reactiveFileReader <- function(intervalMillis, session, filePath, readFunc, ...) {
+  filePath <- coerceToFunc(filePath)
+  extraArgs <- list(...)
+  
+  reactivePoll(
+    intervalMillis, session,
+    function() {
+      path <- filePath()
+      info <- file.info(path)
+      return(paste(path, info$mtime, info$size))
+    },
+    function() {
+      do.call(readFunc, c(filePath(), extraArgs))
+    }
+  )
+}
+
 #' Create a non-reactive scope for an expression
 #' 
 #' Executes the given expression in a scope where reactive values or expression 
@@ -750,7 +999,8 @@ invalidateLater <- function(millis, session) {
 #'
 #' @export
 isolate <- function(expr) {
-  ctx <- Context$new('[isolate]')
+  ctx <- Context$new('[isolate]', type='isolate')
+  on.exit(ctx$invalidate())
   ctx$run(function() {
     expr
   })

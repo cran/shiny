@@ -13,6 +13,17 @@
     return Math.floor(0x100000000 + (Math.random() * 0xF00000000)).toString(16);
   }
 
+  // A wrapper for getComputedStyle that is compatible with older browsers.
+  // This is significantly faster than jQuery's .css() function.
+  function getStyle(el, styleProp) {
+    if (el.currentStyle)
+      var x = el.currentStyle[styleProp];
+    else if (window.getComputedStyle)
+      var x = document.defaultView.getComputedStyle(el, null)
+                .getPropertyValue(styleProp);
+    return x;
+  }
+
   // Convert a number to a string with leading zeros
   function padZeros(n, digits) {
     var str = n.toString();
@@ -450,7 +461,7 @@
       var self = this;
 
       var createSocketFunc = exports.createSocket || function() {
-        var ws = new WebSocket('ws://' + window.location.host, 'shiny');
+        var ws = new WebSocket('ws://' + window.location.host + '/websocket/');
         ws.binaryType = 'arraybuffer';
         return ws;
       };
@@ -801,6 +812,10 @@
       this._sendMessagesToHandlers(message, customMessageHandlers,
                                    customMessageHandlerOrder);
     });
+    
+    addMessageHandler('config', function(message) {
+      this.config = message;
+    });
 
   }).call(ShinyApp.prototype);
 
@@ -987,19 +1002,106 @@
       return $(scope).find('.shiny-image-output, .shiny-plot-output');
     },
     renderValue: function(el, data) {
+      var self = this;
+      var $el = $(el);
       // Load the image before emptying, to minimize flicker
       var img = null;
+      var coordmap, clickId, hoverId;
+      
       if (data) {
+        clickId = $el.data('click-id');
+        hoverId = $el.data('hover-id');
+        
+        coordmap = data.coordmap;
+        delete data.coordmap;
+        
         img = document.createElement('img');
         // Copy items from data to img. This should include 'src'
         $.each(data, function(key, value) {
           img[key] = value;
         });
+
+        // Firefox doesn't have offsetX/Y, so we need to use an alternate
+        // method of calculation for it
+        function mouseOffset(mouseEvent) {
+          if (typeof(mouseEvent.offsetX) !== 'undefined') {
+            return {
+              x: mouseEvent.offsetX,
+              y: mouseEvent.offsetY
+            };
+          }
+
+          var origEvent = mouseEvent.originalEvent || {};
+          return {
+            x: origEvent.layerX - origEvent.target.offsetLeft,
+            y: origEvent.layerY - origEvent.target.offsetTop
+          };
+        }
+        
+        function createMouseHandler(inputId) {
+          return function(e) {
+            if (e === null) {
+              Shiny.onInputChange(inputId, null);
+              return;
+            }
+            
+            // TODO: Account for scrolling within the image??
+            
+            function devToUsrX(deviceX) {
+              var x = deviceX - coordmap.bounds.left;
+              var factor = (coordmap.usr.right - coordmap.usr.left) /
+                  (coordmap.bounds.right - coordmap.bounds.left);
+              return (x * factor) + coordmap.usr.left;
+            }
+            function devToUsrY(deviceY) {
+              var y = deviceY - coordmap.bounds.bottom;
+              var factor = (coordmap.usr.top - coordmap.usr.bottom) /
+                  (coordmap.bounds.top - coordmap.bounds.bottom);
+              return (y * factor) + coordmap.usr.bottom;
+            }
+
+            var offset = mouseOffset(e);
+            
+            var userX = devToUsrX(offset.x);
+            if (coordmap.log.x)
+              userX = Math.pow(10, userX);
+            
+            var userY = devToUsrY(offset.y);
+            if (coordmap.log.y)
+              userY = Math.pow(10, userY);
+            
+            Shiny.onInputChange(inputId, {
+              x: userX, y: userY,
+              ".nonce": Math.random()
+            });
+          }
+        };
+
+        if (!$el.data('hover-func')) {
+          var hoverDelayType = $el.data('hover-delay-type') || 'debounce';
+          var delayFunc = (hoverDelayType === 'throttle') ? throttle : debounce;
+          var hoverFunc = delayFunc($el.data('hover-delay') || 300,
+                                    createMouseHandler(hoverId));
+          $el.data('hover-func', hoverFunc);
+        }
+        
+        if (clickId)
+          $(img).on('mousedown', createMouseHandler(clickId));
+        if (hoverId) {
+          $(img).on('mousemove', $el.data('hover-func'));
+          $(img).on('mouseout', function(e) {
+            $el.data('hover-func')(null);
+          });
+        }
+
+        if (clickId || hoverId) {
+          $(img).addClass('crosshair');
+        }
       }
 
-      $(el).empty();
+      $el.empty();
       if (img)
-        $(el).append(img);
+        $el.append(img);
     }
   });
   outputBindings.register(imageOutputBinding, 'shiny.imageOutput');
@@ -2518,7 +2620,7 @@
       // non-zero, then we know that no ancestor has display:none.
       if (obj === null || obj.offsetWidth !== 0 || obj.offsetHeight !== 0) {
         return false;
-      } else if (getComputedStyle(obj, null).display === 'none') {
+      } else if (getStyle(obj, 'display') === 'none') {
         return true;
       } else {
         return(isHidden(obj.parentNode));
@@ -2639,6 +2741,14 @@
       self.removeClass('playing');
       target.removeData('animating');
     }
+  });
+  
+  $(document).on('keydown', function(e) {
+    if (e.which !== 114 || (!e.ctrlKey && !e.metaKey) || (e.shiftKey || e.altKey))
+      return;
+    var url = 'reactlog?w=' + Shiny.shinyapp.config.workerId;
+    window.open(url);
+    e.preventDefault();
   });
 
 })();
