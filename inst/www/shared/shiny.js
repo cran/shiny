@@ -461,7 +461,16 @@
       var self = this;
 
       var createSocketFunc = exports.createSocket || function() {
-        var ws = new WebSocket('ws://' + window.location.host + '/websocket/');
+        var protocol = 'ws:';
+        if (window.location.protocol === 'https:')
+          protocol = 'wss:';
+
+        var defaultPath = window.location.pathname;
+        if (!/\/$/.test(defaultPath))
+          defaultPath += '/';
+        defaultPath += 'websocket/';
+
+        var ws = new WebSocket(protocol + '//' + window.location.host + defaultPath);
         ws.binaryType = 'arraybuffer';
         return ws;
       };
@@ -483,6 +492,7 @@
       };
       socket.onclose = function() {
         $(document.body).addClass('disconnected');
+        self.$notifyDisconnected();
       };
       return socket;
     };
@@ -498,6 +508,34 @@
       $.extend(this.$inputValues, values);
       this.$updateConditionals();
     };
+
+    this.$notifyDisconnected = function() {
+
+      // function to normalize hostnames
+      normalize = function(hostname) {
+        if (hostname == "127.0.0.1")
+          return "localhost";
+        else
+          return hostname;
+      }
+
+      // Send a 'disconnected' message to parent if we are on the same domin
+      var parentUrl = (parent !== window) ? document.referrer : null;
+      if (parentUrl) {
+        // parse the parent href
+        var a = document.createElement('a');
+        a.href = parentUrl;
+                
+        // post the disconnected message if the hostnames are the same
+        if (normalize(a.hostname) == normalize(window.location.hostname)) {
+          protocol = a.protocol.replace(':',''); // browser compatability
+          origin = protocol + '://' + a.hostname;
+          if (a.port)
+            origin = origin + ':' + a.port;
+          parent.postMessage('disconnected', origin);
+        }
+      }
+    }
 
     // NB: Including blobs will cause IE to break!
     // TODO: Make blobs work with Internet Explorer
@@ -634,7 +672,18 @@
     };
 
     this.$updateConditionals = function() {
-      var scope = {input: this.$inputValues, output: this.$values};
+      var inputs = {};
+
+      // Input keys use "name:type" format; we don't want the user to
+      // have to know about the type suffix when referring to inputs.
+      for (var name in this.$inputValues) {
+        if (this.$inputValues.hasOwnProperty(name)) {
+          var shortName = name.replace(/:.*/, '');
+          inputs[shortName] = this.$inputValues[name];
+        }
+      }
+
+      var scope = {input: inputs, output: this.$values};
 
       var triggerShown  = function() { $(this).trigger('shown'); };
       var triggerHidden = function() { $(this).trigger('hidden'); };
@@ -1006,13 +1055,13 @@
       var $el = $(el);
       // Load the image before emptying, to minimize flicker
       var img = null;
-      var coordmap, clickId, hoverId;
+      var clickId, hoverId;
       
       if (data) {
         clickId = $el.data('click-id');
         hoverId = $el.data('hover-id');
         
-        coordmap = data.coordmap;
+        $el.data('coordmap', data.coordmap);
         delete data.coordmap;
         
         img = document.createElement('img');
@@ -1030,11 +1079,10 @@
               y: mouseEvent.offsetY
             };
           }
-
-          var origEvent = mouseEvent.originalEvent || {};
+          var offset = $el.offset();
           return {
-            x: origEvent.layerX - origEvent.target.offsetLeft,
-            y: origEvent.layerY - origEvent.target.offsetTop
+            x: mouseEvent.pageX - offset.left,
+            y: mouseEvent.pageY - offset.top
           };
         }
         
@@ -1047,6 +1095,7 @@
             
             // TODO: Account for scrolling within the image??
             
+            var coordmap = $el.data('coordmap');
             function devToUsrX(deviceX) {
               var x = deviceX - coordmap.bounds.left;
               var factor = (coordmap.usr.right - coordmap.usr.left) /
@@ -1134,6 +1183,53 @@
     }
   });
   outputBindings.register(downloadLinkOutputBinding, 'shiny.downloadLink');
+
+  var datatableOutputBinding = new OutputBinding();
+  $.extend(datatableOutputBinding, {
+    find: function(scope) {
+      return $(scope).find('.shiny-datatable-output');
+    },
+    onValueError: function(el, err) {
+      exports.unbindAll(el);
+      this.renderError(el, err);
+    },
+    renderValue: function(el, data) {
+      var $el = $(el).empty();
+      if (!data || !data.colnames) return;
+      var colnames = $.makeArray(data.colnames);
+      var header = colnames.map(function(x) {
+        return '<th>' + x + '</th>';
+      }).join('');
+      header = '<thead><tr>' + header + '</tr></thead>';
+      var footer = colnames.map(function(x) {
+        return '<th><input type="text" placeholder="' + x + '" /></th>';
+      }).join('');
+      footer = '<tfoot>' + footer + '</tfoot>';
+      var content = '<table class="table table-striped table-hover">' +
+                    header + footer + '</table>';
+      $el.append(content);
+      var oTable = $(el).children("table").dataTable($.extend({
+        "bProcessing": true,
+        "bServerSide": true,
+        "aaSorting": [],
+        "bSortClasses": false,
+        "iDisplayLength": 25,
+        "sAjaxSource": data.action
+      }, data.options));
+      // use debouncing for searching boxes
+      $el.find('label input').first().unbind('keyup')
+           .keyup(debounce(data.searchDelay, function() {
+              oTable.fnFilter(this.value);
+            }));
+      var searchInputs = $el.find("tfoot input");
+      searchInputs.keyup(debounce(data.searchDelay, function() {
+        oTable.fnFilter(this.value, searchInputs.index(this));
+      }));
+      // FIXME: ugly scrollbars in tab panels b/c Bootstrap uses 'visible: auto'
+      $el.parents('.tab-content').css('overflow', 'visible');
+    }
+  });
+  outputBindings.register(datatableOutputBinding, 'shiny.datatableOutput');
 
   // =========================================================================
   // Input bindings

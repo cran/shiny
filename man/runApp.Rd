@@ -2,7 +2,7 @@
 \alias{runApp}
 \title{Run Shiny Application}
 \usage{
-  runApp(appDir = getwd(), port = 8100L,
+  runApp(appDir = getwd(), port = NULL,
     launch.browser = getOption("shiny.launch.browser", interactive()),
     workerId = "")
 }
@@ -13,11 +13,13 @@
   \code{index.html}. Defaults to the working directory.}
 
   \item{port}{The TCP port that the application should
-  listen on. Defaults to port 8100.}
+  listen on. Defaults to choosing a random port.}
 
   \item{launch.browser}{If true, the system's default web
   browser will be launched automatically after the app is
-  started. Defaults to true in interactive sessions only.}
+  started. Defaults to true in interactive sessions only.
+  This value of this parameter can also be a function to
+  call with the application's URL.}
 
   \item{workerId}{Can generally be ignored. Exists to help
   some editions of Shiny Server Pro route requests to the

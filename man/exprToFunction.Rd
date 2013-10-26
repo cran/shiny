@@ -3,7 +3,7 @@
 \title{Convert an expression or quoted expression to a function}
 \usage{
   exprToFunction(expr, env = parent.frame(2),
-    quoted = FALSE)
+    quoted = FALSE, caller_offset = 1)
 }
 \arguments{
   \item{expr}{A quoted or unquoted expression, or a
@@ -13,6 +13,9 @@
   Defaults to the calling environment two steps back.}
 
   \item{quoted}{Is the expression quoted?}
+
+  \item{caller_offset}{If specified, the offset in the
+  callstack of the functiont to be treated as the caller.}
 }
 \description{
   This is to be called from another function, because it
@@ -22,7 +25,7 @@
 \details{
   If expr is a quoted expression, then this just converts
   it to a function. If expr is a function, then this simply
-  returns expr (and prints a deprecation message. If expr
+  returns expr (and prints a deprecation message). If expr
   was a non-quoted expression from two calls back, then
   this will quote the original expression and convert it to
   a function.

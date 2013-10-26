@@ -354,7 +354,7 @@ Observable <- setRefClass(
       on.exit(.running <<- wasRunning)
 
       ctx$run(function() {
-        result <- withVisible(try(.func(), silent=FALSE))
+        result <- withVisible(try(shinyCallingHandlers(.func()), silent=FALSE))
         .visible <<- result$visible
         .value <<- result$value
       })
@@ -415,6 +415,7 @@ reactive <- function(x, env = parent.frame(), quoted = FALSE, label = NULL) {
     label <- sprintf('reactive(%s)', paste(deparse(body(fun)), collapse='\n'))
 
   o <- Observable$new(fun, label)
+  registerDebugHook(".func", o, "Reactive")
   structure(o$getValue@.Data, observable = o, class = "reactive")
 }
 
@@ -620,8 +621,9 @@ observe <- function(x, env=parent.frame(), quoted=FALSE, label=NULL,
   if (is.null(label))
     label <- sprintf('observe(%s)', paste(deparse(body(fun)), collapse='\n'))
 
-  invisible(Observer$new(
-    fun, label=label, suspended=suspended, priority=priority))
+  o <- Observer$new(fun, label=label, suspended=suspended, priority=priority)
+  registerDebugHook(".func", o, "Observer")
+  invisible(o)
 }
 
 # ---------------------------------------------------------------------------
