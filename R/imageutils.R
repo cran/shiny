@@ -47,10 +47,9 @@ plotPNG <- function(func, filename=tempfile(fileext='.png'),
     pngfun <- png
   }
 
-  do.call(pngfun, c(filename=filename, width=width, height=height, res=res, list(...)))
-  tryCatch(
-    func(),
-    finally=dev.off())
+  pngfun(filename=filename, width=width, height=height, res=res, ...)
+  dv <- dev.cur()
+  tryCatch(shinyCallingHandlers(func()), finally = dev.off(dv))
 
   filename
 }

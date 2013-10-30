@@ -2,6 +2,7 @@ suppressPackageStartupMessages({
   library(caTools)
   library(xtable)
 })
+globalVariables('func')
 
 #' Plot Output
 #' 
@@ -42,9 +43,8 @@ renderPlot <- function(expr, width='auto', height='auto', res=72, ...,
   if (!is.null(func)) {
     shinyDeprecated(msg="renderPlot: argument 'func' is deprecated. Please use 'expr' instead.")
   } else {
-    func <- exprToFunction(expr, env, quoted)
+    installExprFunction(expr, "func", env, quoted)
   }
-
 
   args <- list(...)
   
@@ -158,7 +158,7 @@ renderPlot <- function(expr, width='auto', height='auto', res=72, ...,
 #' @param quoted Is \code{expr} a quoted expression (with \code{quote()})? This
 #'   is useful if you want to save an expression in a variable.
 #' @param deleteFile Should the file in \code{func()$src} be deleted after
-#'   it is sent to the client browser? Genrrally speaking, if the image is a
+#'   it is sent to the client browser? Generally speaking, if the image is a
 #'   temp file generated within \code{func}, then this should be \code{TRUE};
 #'   if the image is not a temp file, this should be \code{FALSE}.
 #'
@@ -220,8 +220,8 @@ renderPlot <- function(expr, width='auto', height='auto', res=72, ...,
 #' }
 renderImage <- function(expr, env=parent.frame(), quoted=FALSE,
                         deleteFile=TRUE) {
-  func <- exprToFunction(expr, env, quoted)
-
+  installExprFunction(expr, "func", env, quoted)
+  
   return(function(shinysession, name, ...) {
     imageinfo <- func()
     # Should the file be deleted after being sent? If .deleteFile not set or if
@@ -270,7 +270,7 @@ renderTable <- function(expr, ..., env=parent.frame(), quoted=FALSE, func=NULL) 
   if (!is.null(func)) {
     shinyDeprecated(msg="renderTable: argument 'func' is deprecated. Please use 'expr' instead.")
   } else {
-    func <- exprToFunction(expr, env, quoted)
+    installExprFunction(expr, "func", env, quoted)
   }
 
   function() {
@@ -327,7 +327,7 @@ renderPrint <- function(expr, env=parent.frame(), quoted=FALSE, func=NULL) {
   if (!is.null(func)) {
     shinyDeprecated(msg="renderPrint: argument 'func' is deprecated. Please use 'expr' instead.")
   } else {
-    func <- exprToFunction(expr, env, quoted)
+    installExprFunction(expr, "func", env, quoted)
   }
 
   function() {
@@ -370,7 +370,7 @@ renderText <- function(expr, env=parent.frame(), quoted=FALSE, func=NULL) {
   if (!is.null(func)) {
     shinyDeprecated(msg="renderText: argument 'func' is deprecated. Please use 'expr' instead.")
   } else {
-    func <- exprToFunction(expr, env, quoted)
+    installExprFunction(expr, "func", env, quoted)
   }
 
   function() {
@@ -410,7 +410,7 @@ renderUI <- function(expr, env=parent.frame(), quoted=FALSE, func=NULL) {
   if (!is.null(func)) {
     shinyDeprecated(msg="renderUI: argument 'func' is deprecated. Please use 'expr' instead.")
   } else {
-    func <- exprToFunction(expr, env, quoted)
+    installExprFunction(expr, "func", env, quoted)
   }
 
   function() {
@@ -467,6 +467,32 @@ downloadHandler <- function(filename, content, contentType=NA) {
   return(function(shinysession, name, ...) {
     shinysession$registerDownload(name, filename, contentType, content)
   })
+}
+
+#' Table output with the JavaScript library DataTables
+#'
+#' Makes a reactive version of the given function that returns a data frame (or
+#' matrix), which will be rendered with the DataTables library. Paging,
+#' searching, filtering, and sorting can be done on the R side using Shiny as
+#' the server infrastructure.
+#' @param expr An expression that returns a data frame or a matrix.
+#' @param options A list of initialization options to be passed to DataTables.
+#' @param searchDelay The delay for searching, in milliseconds (to avoid too
+#'   frequent search requests).
+#' @references \url{http://datatables.net}
+#' @export
+#' @inheritParams renderPlot
+renderDataTable <- function(expr, options = NULL, searchDelay = 500,
+                            env=parent.frame(), quoted=FALSE) {
+  installExprFunction(expr, "func", env, quoted)
+
+  function(shinysession, name, ...) {
+    data <- func()
+    if (length(dim(data)) != 2) return() # expects a rectangular data object
+    action <- shinysession$registerDataTable(name, data)
+    list(colnames = colnames(data), action = action, options = options,
+         searchDelay = searchDelay)
+  }
 }
 
 

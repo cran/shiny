@@ -36,7 +36,7 @@ repeatable <- function(rngfunc, seed = runif(1, 0, .Machine$integer.max)) {
     
     set.seed(seed)
     
-    do.call(rngfunc, list(...))
+    rngfunc(...)
   }
 }
 
@@ -122,7 +122,7 @@ makeFunction <- function(args = pairlist(), body, env = parent.frame()) {
 #'
 #' If expr is a quoted expression, then this just converts it to a function.
 #' If expr is a function, then this simply returns expr (and prints a
-#'   deprecation message.
+#'   deprecation message).
 #' If expr was a non-quoted expression from two calls back, then this will
 #'   quote the original expression and convert it to a function.
 #
@@ -130,6 +130,8 @@ makeFunction <- function(args = pairlist(), body, env = parent.frame()) {
 #' @param env The desired environment for the function. Defaults to the
 #'   calling environment two steps back.
 #' @param quoted Is the expression quoted?
+#' @param caller_offset If specified, the offset in the callstack of the 
+#'   functiont to be treated as the caller. 
 #'
 #' @examples
 #' # Example of a new renderer, similar to renderText
@@ -165,9 +167,10 @@ makeFunction <- function(args = pairlist(), body, env = parent.frame()) {
 #' # "text, text, text"
 #'
 #' @export
-exprToFunction <- function(expr, env=parent.frame(2), quoted=FALSE) {
+exprToFunction <- function(expr, env=parent.frame(2), quoted=FALSE, 
+                           caller_offset=1) {
   # Get the quoted expr from two calls back
-  expr_sub <- eval(substitute(substitute(expr)), parent.frame())
+  expr_sub <- eval(substitute(substitute(expr)), parent.frame(caller_offset))
 
   # Check if expr is a function, making sure not to evaluate expr, in case it
   # is actually an unquoted expression.
@@ -176,8 +179,8 @@ exprToFunction <- function(expr, env=parent.frame(2), quoted=FALSE) {
   # latter, it will be a language object.
   if (!is.name(expr_sub) && expr_sub[[1]] == as.name('function')) {
     # Get name of function that called this function
-    called_fun <- sys.call(-1)[[1]]
-
+    called_fun <- sys.call(-1 * caller_offset)[[1]]
+    
     shinyDeprecated(msg = paste("Passing functions to '", called_fun,
       "' is deprecated. Please use expressions instead. See ?", called_fun,
       " for more information.", sep=""))
@@ -191,6 +194,36 @@ exprToFunction <- function(expr, env=parent.frame(2), quoted=FALSE) {
     # expr is an unquoted expression
     makeFunction(body=expr_sub, env=env)
   }
+}
+
+#' Installs an expression in the given environment as a function, and registers
+#' debug hooks so that breakpoints may be set in the function.
+#' 
+#' This function can replace \code{exprToFunction} as follows: we may use
+#' \code{func <- exprToFunction(expr)} if we do not want the debug hooks, or
+#' \code{installExprFunction(expr, "func")} if we do. Both approaches create a
+#' function named \code{func} in the current environment.
+#' 
+#' @seealso Wraps \code{exprToFunction}; see that method's documentation for 
+#'   more documentation and examples.
+#'   
+#' @param expr A quoted or unquoted expression
+#' @param name The name the function should be given 
+#' @param eval.env The desired environment for the function. Defaults to the
+#'   calling environment two steps back. 
+#' @param quoted Is the expression quoted?
+#' @param assign.env The environment in which the function should be assigned.
+#' @param label A label for the object to be shown in the debugger. Defaults
+#'   to the name of the calling function. 
+#' 
+#' @export
+installExprFunction <- function(expr, name, eval.env = parent.frame(2), 
+                                quoted = FALSE, 
+                                assign.env = parent.frame(1),
+                                label = as.character(sys.call(-1)[[1]])) {
+  func <- exprToFunction(expr, eval.env, quoted, 2)
+  assign(name, func, envir = assign.env)
+  registerDebugHook(name, assign.env, label)
 }
 
 #' Parse a GET query string from a URL
@@ -249,6 +282,15 @@ parseQueryString <- function(str) {
   setNames(as.list(values), keys)
 }
 
+# decide what to do in case of errors; it is customizable using the shiny.error
+# option (e.g. we can set options(shiny.error = recover))
+shinyCallingHandlers <- function(expr) {
+  withCallingHandlers(expr, error = function(e) {
+    handle <- getOption('shiny.error')
+    if (is.function(handle)) handle()
+  })
+}
+
 #' Print message for deprecated functions in Shiny
 #'
 #' To disable these messages, use \code{options(shiny.deprecation.messages=FALSE)}.
@@ -272,6 +314,28 @@ shinyDeprecated <- function(new=NULL, msg=NULL,
   message(msg)
 }
 
+#' Register a function with the debugger (if one is active). 
+#' 
+#' Call this function after exprToFunction to give any active debugger a hook
+#' to set and clear breakpoints in the function. A debugger may implement
+#' registerShinyDebugHook to receive callbacks when Shiny functions are 
+#' instantiated at runtime. 
+#'
+#' @param name Name of the field or object containing the function. 
+#' @param where The reference object or environment containing the function.
+#' @param label A label to display on the function in the debugger.
+#' @noRd
+registerDebugHook <- function(name, where, label) {
+  if (exists("registerShinyDebugHook", mode = "function")) {
+    registerShinyDebugHook <- get("registerShinyDebugHook", mode = "function")
+    params <- new.env(parent = emptyenv())
+    params$name <- name
+    params$where <- where
+    params$label <- label
+    registerShinyDebugHook(params)
+  }
+}
+
 Callbacks <- setRefClass(
   'Callbacks',
   fields = list(
@@ -292,15 +356,11 @@ Callbacks <- setRefClass(
     },
     invoke = function(..., onError=NULL) {
       for (callback in .callbacks$values()) {
-        tryCatch(
-          do.call(callback, list(...)),
-          error = function(e) {
-            if (is.null(onError))
-              stop(e)
-            else
-              onError(e)
-          }
-        )
+        if (is.null(onError)) {
+          callback(...)
+        } else {
+          tryCatch(callback(...), error = onError)
+        }
       }
     },
     count = function() {
@@ -308,3 +368,56 @@ Callbacks <- setRefClass(
     }
   )
 )
+
+# convert a data frame to JSON as required by DataTables request
+dataTablesJSON <- function(data, query) {
+  n <- nrow(data)
+  with(parseQueryString(query), {
+    # global searching
+    i <- seq_len(n)
+    if (nzchar(sSearch)) {
+      i0 <- apply(data, 2, function(x) grep(sSearch, as.character(x)))
+      i <- intersect(i, unique(unlist(i0)))
+    }
+    # search by columns
+    if (length(i)) for (j in seq_len(as.integer(iColumns)) - 1) {
+      if (is.null(k <- get_exists(sprintf('sSearch_%d', j), 'character'))) next
+      if (nzchar(k)) i <- intersect(grep(k, as.character(data[, j + 1])), i)
+      if (length(i) == 0) break
+    }
+    if (length(i) != n) data <- data[i, , drop = FALSE]
+    # sorting
+    oList <- list()
+    for (j in seq_len(as.integer(iSortingCols)) - 1) {
+      if (is.null(k <- get_exists(sprintf('iSortCol_%d', j), 'character'))) break
+      desc = get_exists(sprintf('sSortDir_%d', j), 'character')
+      if (is.character(desc)) {
+        col <- data[, as.integer(k) + 1]
+        oList[[length(oList) + 1]] <- (if (desc == 'asc') identity else `-`)(
+          if (is.numeric(col)) col else xtfrm(col)
+        )
+      }
+    }
+    if (length(oList)) {
+      i <- do.call(order, oList)
+      data <- data[i, , drop = FALSE]
+    }
+    # paging
+    i <- seq(as.integer(iDisplayStart) + 1L, length.out = as.integer(iDisplayLength))
+    i <- i[i <= n]
+    fdata <- data[i, , drop = FALSE]  # filtered data
+    fdata <- unname(as.matrix(fdata))
+
+    toJSON(list(
+      sEcho = as.integer(sEcho),
+      iTotalRecords = n,
+      iTotalDisplayRecords = nrow(data),
+      aaData = fdata
+    ))
+  })
+}
+
+get_exists = function(x, mode) {
+  if (exists(x, envir = parent.frame(), mode = mode, inherits = FALSE))
+    get(x, envir = parent.frame(), mode = mode, inherits = FALSE)
+}

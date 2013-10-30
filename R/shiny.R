@@ -88,6 +88,15 @@ ShinySession <- setRefClass(
       session$input             <<- .self$input
       session$output            <<- .self$output
       session$.impl             <<- .self
+
+      if (!is.null(websocket$request$HTTP_SHINY_SERVER_CREDENTIALS)) {
+        try({
+          creds <- fromJSON(websocket$request$HTTP_SHINY_SERVER_CREDENTIALS)
+          session$user <<- creds$user
+          session$groups <<- creds$groups
+        }, silent=FALSE)
+      }
+
       # session$request should throw an error if httpuv doesn't have
       # websocket$request, but don't throw it until a caller actually
       # tries to access session$request
@@ -146,7 +155,7 @@ ShinySession <- setRefClass(
 
         obs <- observe({
           
-          value <- try(func(), silent=FALSE)
+          value <- try(shinyCallingHandlers(func()), silent=FALSE)
           
           .invalidatedOutputErrors$remove(name)
           .invalidatedOutputValues$remove(name)
@@ -223,6 +232,8 @@ ShinySession <- setRefClass(
     },
     dispatch = function(msg) {
       method <- paste('@', msg$method, sep='')
+      # we must use $ instead of [[ here at the moment; see
+      # https://github.com/rstudio/shiny/issues/274
       func <- try(do.call(`$`, list(.self, method)), silent=TRUE)
       if (inherits(func, 'try-error')) {
         .sendErrorResponse(msg, paste('Unknown method', msg$method))
@@ -421,6 +432,18 @@ ShinySession <- setRefClass(
             ),
             'Cache-Control'='no-cache')))
       }
+
+      if (matches[2] == 'datatable') {
+        # /session/$TOKEN/datatable/$NAME
+        dlmatches <- regmatches(matches[3],
+                                regexec("^([^/]+)(/[^/]+)?$",
+                                        matches[3]))[[1]]
+        dlname <- utils::URLdecode(dlmatches[2])
+        download <- downloads$get(dlname)
+        return(httpResponse(
+          200, 'application/json', dataTablesJSON(download$data, req$QUERY_STRING)
+        ))
+      }
       
       return(httpResponse(404, 'text/html', '<h1>Not Found</h1>'))
     },
@@ -458,6 +481,15 @@ ShinySession <- setRefClass(
                                contentType = contentType,
                                func = func))
       return(sprintf('session/%s/download/%s?w=%s',
+                     URLencode(token, TRUE),
+                     URLencode(name, TRUE),
+                     .workerId))
+    },
+    # this can be more general registrations; not limited to data tables
+    registerDataTable = function(name, data) {
+      # abusing downloads at the moment
+      downloads$set(name, list(data = data))
+      return(sprintf('session/%s/datatable/%s?w=%s',
                      URLencode(token, TRUE),
                      URLencode(name, TRUE),
                      .workerId))
@@ -937,6 +969,13 @@ resourcePathHandler <- function(req) {
 #' @export
 shinyServer <- function(func) {
   .globals$server <- func
+  if (!is.null(func))
+  {
+    # Tag this function as the Shiny server function. A debugger may use this
+    # tag to give this function special treatment.
+    attr(.globals$server, "shinyServerFunction") <- TRUE
+    registerDebugHook("server", .globals, "Server Function")
+  }
   invisible()
 }
 
@@ -1233,12 +1272,9 @@ startApp <- function(httpHandlers, serverFuncSource, port, workerId) {
   }
 }
 
-# NOTE: we de-roxygenized this comment because the function isn't exported
 # Run an application that was created by \code{\link{startApp}}. This
 # function should normally be called in a \code{while(TRUE)} loop.
-# 
-# @param ws_env The return value from \code{\link{startApp}}.
-serviceApp <- function(ws_env) {
+serviceApp <- function() {
   if (timerCallbacks$executeElapsed()) {
     for (shinysession in appsByToken$values()) {
       shinysession$manageHiddenOutputs()
@@ -1270,10 +1306,11 @@ serviceApp <- function(ws_env) {
 #'   \code{server.R}, plus, either \code{ui.R} or a \code{www} directory that
 #'   contains the file \code{index.html}. Defaults to the working directory.
 #' @param port The TCP port that the application should listen on. Defaults to 
-#'   port 8100.
+#'   choosing a random port.
 #' @param launch.browser If true, the system's default web browser will be 
 #'   launched automatically after the app is started. Defaults to true in 
-#'   interactive sessions only.
+#'   interactive sessions only. This value of this parameter can also be a 
+#'   function to call with the application's URL. 
 #' @param workerId Can generally be ignored. Exists to help some editions of
 #'   Shiny Server Pro route requests to the correct process.
 #'
@@ -1299,7 +1336,7 @@ serviceApp <- function(ws_env) {
 #' }
 #' @export
 runApp <- function(appDir=getwd(),
-                   port=8100L,
+                   port=NULL,
                    launch.browser=getOption('shiny.launch.browser',
                                             interactive()), 
                    workerId="") {
@@ -1322,6 +1359,36 @@ runApp <- function(appDir=getwd(),
 
   require(shiny)
   
+  # determine port if we need to
+  if (is.null(port)) {
+    
+    # Try up to 20 random ports. If we don't succeed just plow ahead
+    # with the final value we tried, and let the "real" startServer
+    # somewhere down the line fail and throw the error to the user.
+    #
+    # If we (think we) succeed, save the value as .globals$lastPort,
+    # and try that first next time the user wants a random port.
+    
+    for (i in 1:20) {
+      if (!is.null(.globals$lastPort)) {
+        port <- .globals$lastPort
+        .globals$lastPort <- NULL
+      }
+      else {
+        # Try up to 20 random ports
+        port <- round(runif(1, min=3000, max=8000))
+      }
+
+      # Test port to see if we can use it
+      tmp <- try(startServer('0.0.0.0', port, list()), silent=TRUE)
+      if (!is(tmp, 'try-error')) {
+        stopServer(tmp)
+        .globals$lastPort <- port
+        break
+      }
+    }
+  }
+  
   if (is.character(appDir)) {
     orig.wd <- getwd()
     setwd(appDir)
@@ -1335,20 +1402,20 @@ runApp <- function(appDir=getwd(),
     stopServer(server)
   }, add = TRUE)
   
-  if (launch.browser && !is.character(port)) {
+  if (!is.character(port)) {
     appUrl <- paste("http://localhost:", port, sep="")
-    utils::browseURL(appUrl)
+    if (is.function(launch.browser))
+      launch.browser(appUrl)
+    else if (launch.browser)
+      utils::browseURL(appUrl)
   }
   
   .globals$retval <- NULL
   .globals$stopped <- FALSE
-  tryCatch(
+  shinyCallingHandlers(
     while (!.globals$stopped) {
       serviceApp()
       Sys.sleep(0.001)
-    },
-    finally = {
-      timerCallbacks$clear()
     }
   )
   
@@ -1377,7 +1444,7 @@ stopApp <- function(returnValue = NULL) {
 #' @param example The name of the example to run, or \code{NA} (the default) to
 #'   list the available examples.
 #' @param port The TCP port that the application should listen on. Defaults to 
-#'   port 8100.
+#'   choosing a random port.
 #' @param launch.browser If true, the system's default web browser will be 
 #'   launched automatically after the app is started. Defaults to true in 
 #'   interactive sessions only.
@@ -1395,7 +1462,7 @@ stopApp <- function(returnValue = NULL) {
 #' }
 #' @export
 runExample <- function(example=NA,
-                       port=8100L,
+                       port=NULL,
                        launch.browser=getOption('shiny.launch.browser',
                                                 interactive())) {
   examplesDir <- system.file('examples', package='shiny')
