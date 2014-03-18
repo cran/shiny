@@ -695,3 +695,8 @@ test_that("classes of reactive object", {
   expect_true(is.reactive(r))
   expect_false(is.reactive(o))
 })
+
+test_that("{} and NULL also work in reactive()", {
+  reactive({})
+  reactive(NULL)
+})

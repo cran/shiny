@@ -186,10 +186,12 @@ updateDateRangeInput <- function(session, inputId, label = NULL,
 #'
 #' @param session The \code{session} object passed to function given to
 #'   \code{shinyServer}.
-#' @param inputId The id of the tabset panel object.
+#' @param inputId The id of the \code{tabsetPanel}, \code{navlistPanel},
+#' or \code{navbarPage} object.
 #' @param selected The name of the tab to make active.
 #'
-#' @seealso \code{\link{tabsetPanel}}
+#' @seealso \code{\link{tabsetPanel}}, \code{\link{navlistPanel}},
+#' \code{\link{navbarPage}}
 #'
 #' @examples
 #' \dontrun{
@@ -200,7 +202,7 @@ updateDateRangeInput <- function(session, inputId, label = NULL,
 #'     x_even <- input$controller %% 2 == 0
 #'
 #'     # Change the selected tab.
-#'     # Note that the tabsetPanel must have been created with an 'id' argument
+#'     # Note that the tabset container must have been created with an 'id' argument
 #'     if (x_even) {
 #'       updateTabsetPanel(session, "inTabset", selected = "panel2")
 #'     } else {
@@ -247,7 +249,10 @@ updateTabsetPanel <- function(session, inputId, selected = NULL) {
 updateNumericInput <- function(session, inputId, label = NULL, value = NULL,
     min = NULL, max = NULL, step = NULL) {
 
-  message <- dropNulls(list(label=label, value=value, min=min, max=max, step=step))
+  message <- dropNulls(list(
+    label = label, value = formatNoSci(value),
+    min = formatNoSci(min), max = formatNoSci(max), step = formatNoSci(step)
+  ))
   session$sendInputMessage(inputId, message)
 }
 
@@ -257,7 +262,7 @@ updateNumericInput <- function(session, inputId, label = NULL, value = NULL,
 #' @template update-input
 #' @param choices A named vector or named list of options. For each item, the
 #'   name will be used as the label, and the value will be used as the value.
-#' @param selected A vector or list of options which will be selected.
+#' @param selected A vector or list of options (values) which will be selected.
 #'
 #' @seealso \code{\link{checkboxGroupInput}}
 #'
@@ -283,7 +288,7 @@ updateNumericInput <- function(session, inputId, label = NULL, value = NULL,
 #'     updateCheckboxGroupInput(session, "inCheckboxGroup2",
 #'       label = paste("checkboxgroup label", x),
 #'       choices = cb_options,
-#'       selected = sprintf("option label %d 2", x)
+#'       selected = sprintf("option-%d-2", x)
 #'     )
 #'   })
 #' })
@@ -293,17 +298,18 @@ updateCheckboxGroupInput <- function(session, inputId, label = NULL,
   choices = NULL, selected = NULL) {
 
   choices <- choicesWithNames(choices)
+  if (!is.null(selected))
+    selected <- validateSelected(selected, choices, inputId)
 
-  options <- mapply(choices, names(choices),
+  options <- if (length(choices)) mapply(choices, names(choices),
     SIMPLIFY = FALSE, USE.NAMES = FALSE,
     FUN = function(value, name) {
       list(value = value,
-           label = name,
-           checked = name %in% selected)
+           label = name)
     }
   )
 
-  message <- dropNulls(list(label = label, options = options))
+  message <- dropNulls(list(label = label, options = options, value = selected))
 
   session$sendInputMessage(inputId, message)
 }
@@ -314,7 +320,7 @@ updateCheckboxGroupInput <- function(session, inputId, label = NULL,
 #' @template update-input
 #' @param choices A named vector or named list of options. For each item, the
 #'   name will be used as the label, and the value will be used as the value.
-#' @param selected A vector or list of options which will be selected.
+#' @param selected A vector or list of options (values) which will be selected.
 #'
 #' @seealso \code{\link{radioButtons}}
 #'
@@ -338,7 +344,7 @@ updateCheckboxGroupInput <- function(session, inputId, label = NULL,
 #'     updateRadioButtons(session, "inRadio2",
 #'       label = paste("Radio label", x),
 #'       choices = r_options,
-#'       selected = sprintf("option label %d 2", x)
+#'       selected = sprintf("option-%d-2", x)
 #'     )
 #'   })
 #' })
@@ -352,7 +358,7 @@ updateRadioButtons <- updateCheckboxGroupInput
 #' @template update-input
 #' @param choices A named vector or named list of options. For each item, the
 #'   name will be used as the label, and the value will be used as the value.
-#' @param selected A vector or list of options which will be selected.
+#' @param selected A vector or list of options (values) which will be selected.
 #'
 #' @seealso \code{\link{selectInput}}
 #'
@@ -379,27 +385,10 @@ updateRadioButtons <- updateCheckboxGroupInput
 #'     updateSelectInput(session, "inSelect2",
 #'       label = paste("Select label", x),
 #'       choices = s_options,
-#'       selected = sprintf("option label %d 2", x)
+#'       selected = sprintf("option-%d-2", x)
 #'     )
 #'   })
 #' })
 #' }
 #' @export
-updateSelectInput <- function(session, inputId, label = NULL, choices = NULL,
-    selected = NULL) {
-
-  choices <- choicesWithNames(choices)
-
-  options <- mapply(choices, names(choices),
-    SIMPLIFY = FALSE, USE.NAMES = FALSE,
-    FUN = function(value, name) {
-      list(value = value,
-           label = name,
-           selected = name %in% selected)
-    }
-  )
-
-  message <- dropNulls(list(label = label, options = options))
-
-  session$sendInputMessage(inputId, message)
-}
+updateSelectInput <- updateCheckboxGroupInput

@@ -15,26 +15,26 @@ htmlEscape <- local({
     `\n` = '&#10;'
   )
   .htmlSpecialsPatternAttrib <- paste(names(.htmlSpecialsAttrib), collapse='|')
-  
+
   function(text, attribute=TRUE) {
     pattern <- if(attribute)
-      .htmlSpecialsPatternAttrib 
+      .htmlSpecialsPatternAttrib
     else
       .htmlSpecialsPattern
-    
+
     # Short circuit in the common case that there's nothing to escape
     if (!grepl(pattern, text))
       return(text)
-    
+
     specials <- if(attribute)
       .htmlSpecialsAttrib
     else
       .htmlSpecials
-    
+
     for (chr in names(specials)) {
       text <- gsub(chr, specials[[chr]], text, fixed=TRUE)
     }
-    
+
     return(text)
   }
 })
@@ -46,22 +46,19 @@ isTag <- function(x) {
 #' @S3method print shiny.tag
 print.shiny.tag <- function(x, ...) {
   print(as.character(x), ...)
+  invisible(x)
 }
 
+# indent can be numeric to indicate an initial indent level,
+# or FALSE to suppress
 #' @S3method format shiny.tag
-format.shiny.tag <- function(x, ...) {
-  as.character.shiny.tag(x)
+format.shiny.tag <- function(x, ..., singletons = character(0), indent = 0) {
+  as.character(renderTags(x, singletons = singletons, indent = indent)$html)
 }
 
 #' @S3method as.character shiny.tag
 as.character.shiny.tag <- function(x, ...) {
-  f = file()
-  on.exit(close(f))
-  textWriter <- function(text) {
-    cat(text, file=f)
-  }
-  tagWrite(x, textWriter)
-  return(HTML(paste(readLines(f, warn=FALSE), collapse='\n')))
+  renderTags(x)$html
 }
 
 #' @S3method print shiny.tag.list
@@ -73,14 +70,26 @@ format.shiny.tag.list <- format.shiny.tag
 #' @S3method as.character shiny.tag.list
 as.character.shiny.tag.list <- as.character.shiny.tag
 
+#' @S3method print html
+print.html <- function(x, ...) {
+  cat(x, "\n")
+  invisible(x)
+}
+
+#' @S3method format html
+format.html <- function(x, ...) {
+  as.character(x)
+}
+
 normalizeText <- function(text) {
   if (!is.null(attr(text, "html")))
     text
   else
     htmlEscape(text, attribute=FALSE)
-  
+
 }
 
+#' @rdname tag
 #' @export
 tagList <- function(...) {
   lst <- list(...)
@@ -88,25 +97,67 @@ tagList <- function(...) {
   return(lst)
 }
 
+#' @rdname tag
+#' @export
+tagAppendAttributes <- function(tag, ...) {
+  tag$attribs <- c(tag$attribs, list(...))
+  tag
+}
+
+#' @rdname tag
 #' @export
 tagAppendChild <- function(tag, child) {
   tag$children[[length(tag$children)+1]] <- child
   tag
 }
 
+#' @rdname tag
 #' @export
 tagAppendChildren <- function(tag, ..., list = NULL) {
   tag$children <- c(tag$children, c(list(...), list))
   tag
 }
 
+#' @rdname tag
 #' @export
 tagSetChildren <- function(tag, ..., list = NULL) {
   tag$children <- c(list(...), list)
   tag
 }
 
+#' HTML Tag Object
+#'
+#' \code{tag()} creates an HTML tag definition. Note that all of the valid HTML5
+#' tags are already defined in the \code{\link{tags}} environment so these
+#' functions should only be used to generate additional tags.
+#' \code{tagAppendChild()} and \code{tagList()} are for supporting package
+#' authors who wish to create their own sets of tags; see the contents of
+#' bootstrap.R for examples.
+#' @param _tag_name HTML tag name
+#' @param varArgs List of attributes and children of the element. Named list
+#'   items become attributes, and unnamed list items become children. Valid
+#'   children are tags, single-character character vectors (which become text
+#'   nodes), and raw HTML (see \code{\link{HTML}}). You can also pass lists that
+#'   contain tags, text nodes, and HTML.
+#' @param tag A tag to append child elements to.
+#' @param child A child element to append to a parent tag.
+#' @param ...  Unnamed items that comprise this list of tags.
+#' @param list An optional list of elements. Can be used with or instead of the
+#'   \code{...} items.
+#' @return An HTML tag object that can be rendered as HTML using
+#'   \code{\link{as.character}()}.
 #' @export
+#' @examples
+#' tagList(tags$h1("Title"),
+#'         tags$h2("Header text"),
+#'         tags$p("Text here"))
+#'
+#' # Can also convert a regular list to a tagList (internal data structure isn't
+#' # exactly the same, but when rendered to HTML, the output is the same).
+#' x <- list(tags$h1("Title"),
+#'           tags$h2("Header text"),
+#'           tags$p("Text here"))
+#' tagList(x)
 tag <- function(`_tag_name`, varArgs) {
   # Get arg names; if not a named list, use vector of empty strings
   varArgsNames <- names(varArgs)
@@ -116,11 +167,11 @@ tag <- function(`_tag_name`, varArgs) {
   # Named arguments become attribs, dropping NULL values
   named_idx <- nzchar(varArgsNames)
   attribs <- dropNulls(varArgs[named_idx])
-  
+
   # Unnamed arguments are flattened and added as children.
   # Use unname() to remove the names attribute from the list, which would
   # consist of empty strings anyway.
-  children <- flattenTags(unname(varArgs[!named_idx]))
+  children <- unname(varArgs[!named_idx])
 
   # Return tag data structure
   structure(
@@ -131,64 +182,75 @@ tag <- function(`_tag_name`, varArgs) {
   )
 }
 
-tagWrite <- function(tag, textWriter, indent=0, context = NULL, eol = "\n") {
-  
+tagWrite <- function(tag, textWriter, indent=0, eol = "\n") {
+
+  if (length(tag) == 0)
+    return (NULL)
+
   # optionally process a list of tags
   if (!isTag(tag) && is.list(tag)) {
-    sapply(tag, function(t) tagWrite(t, textWriter, indent, context))
+    tag <- dropNullsOrEmpty(flattenTags(tag))
+    lapply(tag, tagWrite, textWriter, indent)
     return (NULL)
   }
-  
-  # first call optional filter -- exit function if it returns false
-  if (!is.null(context) && !is.null(context$filter) && !context$filter(tag))
-    return (NULL)
-  
+
+  nextIndent <- if (is.numeric(indent)) indent + 1 else indent
+  indent <- if (is.numeric(indent)) indent else 0
+
   # compute indent text
   indentText <- paste(rep(" ", indent*2), collapse="")
-  
+
   # Check if it's just text (may either be plain-text or HTML)
   if (is.character(tag)) {
     textWriter(paste(indentText, normalizeText(tag), eol, sep=""))
     return (NULL)
   }
-  
+
   # write tag name
   textWriter(paste(indentText, "<", tag$name, sep=""))
-  
+
+  # Convert all attribs to chars explicitly; prevents us from messing up factors
+  attribs <- lapply(tag$attribs, as.character)
+  # concatenate attributes
+  # split() is very slow, so avoid it if possible
+  if (anyDuplicated(names(attribs)))
+    attribs <- lapply(split(attribs, names(attribs)), paste, collapse = " ")
+
   # write attributes
-  for (attrib in names(tag$attribs)) {
-    attribValue <- tag$attribs[[attrib]]
+  for (attrib in names(attribs)) {
+    attribValue <- attribs[[attrib]]
     if (!is.na(attribValue)) {
       if (is.logical(attribValue))
         attribValue <- tolower(attribValue)
-      text <- htmlEscape(attribValue, attribute=TRUE) 
+      text <- htmlEscape(attribValue, attribute=TRUE)
       textWriter(paste(" ", attrib,"=\"", text, "\"", sep=""))
     }
     else {
       textWriter(paste(" ", attrib, sep=""))
     }
   }
-  
+
   # write any children
-  if (length(tag$children) > 0) {
+  children <- dropNullsOrEmpty(flattenTags(tag$children))
+  if (length(children) > 0) {
     textWriter(">")
-    
+
     # special case for a single child text node (skip newlines and indentation)
-    if ((length(tag$children) == 1) && is.character(tag$children[[1]]) ) {
-      tagWrite(tag$children[[1]], textWriter, 0, context, "")
-      textWriter(paste("</", tag$name, ">", eol, sep=""))
+    if ((length(children) == 1) && is.character(children[[1]]) ) {
+      textWriter(paste(normalizeText(children[[1]]), "</", tag$name, ">", eol,
+        sep=""))
     }
     else {
       textWriter("\n")
-      for (child in tag$children)
-        tagWrite(child, textWriter, indent+1, context)
+      for (child in children)
+        tagWrite(child, textWriter, nextIndent)
       textWriter(paste(indentText, "</", tag$name, ">", eol, sep=""))
     }
   }
   else {
-    # only self-close void elements 
+    # only self-close void elements
     # (see: http://dev.w3.org/html5/spec/single-page.html#void-elements)
-    if (tag$name %in% c("area", "base", "br", "col", "command", "embed", "hr", 
+    if (tag$name %in% c("area", "base", "br", "col", "command", "embed", "hr",
                         "img", "input", "keygen", "link", "meta", "param",
                         "source", "track", "wbr")) {
       textWriter(paste("/>", eol, sep=""))
@@ -199,9 +261,160 @@ tagWrite <- function(tag, textWriter, indent=0, context = NULL, eol = "\n") {
   }
 }
 
+doRenderTags <- function(ui, indent = 0) {
+  # Render the body--the bodyHtml variable will be created
+  conn <- file(open="w+")
+  connWriter <- function(text) writeChar(text, conn, eos = NULL)
+  htmlResult <- tryCatch({
+    tagWrite(ui, connWriter, indent)
+    flush(conn)
+    readLines(conn)
+  },
+    finally = close(conn)
+  )
+  return(HTML(paste(htmlResult, collapse = "\n")))
+}
 
-# environment used to store all available tags
-#' @export
+renderTags <- function(ui, singletons = character(0), indent = 0) {
+  # Do singleton and head processing before rendering
+  singletonInfo <- takeSingletons(ui, singletons)
+  headInfo <- takeHeads(singletonInfo$ui)
+
+  headIndent <- if (is.numeric(indent)) indent + 1 else indent
+  headHtml <- doRenderTags(headInfo$head, indent = headIndent)
+  bodyHtml <- doRenderTags(headInfo$ui, indent = indent)
+
+  return(list(head = headHtml,
+              singletons = singletonInfo$singletons,
+              html = bodyHtml))
+}
+
+# Walk a tree of tag objects, rewriting objects according to func.
+# preorder=TRUE means preorder tree traversal, that is, an object
+# should be rewritten before its children.
+rewriteTags <- function(ui, func, preorder) {
+  if (preorder)
+    ui <- func(ui)
+
+  if (isTag(ui)) {
+    ui$children[] <- lapply(ui$children, rewriteTags, func, preorder)
+  } else if (is.list(ui)) {
+    ui[] <- lapply(ui, rewriteTags, func, preorder)
+  }
+
+  if (!preorder)
+    ui <- func(ui)
+
+  return(ui)
+}
+
+# Preprocess a tag object by changing any singleton X into
+# <!--SHINY.SINGLETON[sig]-->X'<!--/SHINY.SINGLETON[sig]-->
+# where sig is the sha1 of X, and X' is X minus the singleton
+# attribute.
+#
+# In the case of nested singletons, outer singletons are processed
+# before inner singletons (otherwise the processing of inner
+# singletons would cause the sha1 of the outer singletons to be
+# different).
+surroundSingletons <- local({
+  surroundSingleton <- function(uiObj) {
+    if (inherits(uiObj, "shiny.singleton")) {
+      sig <- digest(uiObj, "sha1")
+      class(uiObj) <- class(uiObj)[class(uiObj) != "shiny.singleton"]
+      return(tagList(
+        HTML(sprintf("<!--SHINY.SINGLETON[%s]-->", sig)),
+        uiObj,
+        HTML(sprintf("<!--/SHINY.SINGLETON[%s]-->", sig))
+      ))
+    } else {
+      uiObj
+    }
+  }
+
+  function(ui) {
+    rewriteTags(ui, surroundSingleton, TRUE)
+  }
+})
+
+# Given a tag object, apply singleton logic (allow singleton objects
+# to appear no more than once per signature) and return the processed
+# HTML objects and also the list of known singletons.
+takeSingletons <- function(ui, singletons=character(0), desingleton=TRUE) {
+  result <- rewriteTags(ui, function(uiObj) {
+    if (inherits(uiObj, "shiny.singleton")) {
+      sig <- digest(uiObj, "sha1")
+      if (sig %in% singletons)
+        return(NULL)
+      singletons <<- append(singletons, sig)
+      if (desingleton)
+        class(uiObj) <- class(uiObj)[class(uiObj) != "shiny.singleton"]
+      return(uiObj)
+    } else {
+      return(uiObj)
+    }
+  }, TRUE)
+
+  return(list(ui=result, singletons=singletons))
+}
+
+# Given a tag object, extract out any children of tags$head
+# and return them separate from the body.
+takeHeads <- function(ui) {
+  headItems <- list()
+  result <- rewriteTags(ui, function(uiObj) {
+    if (isTag(uiObj) && tolower(uiObj$name) == "head") {
+      headItems <<- append(headItems, uiObj$children)
+      return(NULL)
+    }
+    return(uiObj)
+  }, FALSE)
+
+  return(list(ui=result, head=headItems))
+}
+
+#' HTML Builder Functions
+#'
+#' Simple functions for constructing HTML documents.
+#'
+#' The \code{tags} environment contains convenience functions for all valid
+#' HTML5 tags. To generate tags that are not part of the HTML5 specification,
+#' you can use the \code{\link{tag}()} function.
+#'
+#' Dedicated functions are available for the most common HTML tags that do not
+#' conflict with common R functions.
+#'
+#' The result from these functions is a tag object, which can be converted using
+#' \code{\link{as.character}()}.
+#'
+#' @name builder
+#' @param ... Attributes and children of the element. Named arguments become
+#'   attributes, and positional arguments become children. Valid children are
+#'   tags, single-character character vectors (which become text nodes), and raw
+#'   HTML (see \code{\link{HTML}}). You can also pass lists that contain tags,
+#'   text nodes, and HTML.
+#' @export tags
+#' @examples
+#' doc <- tags$html(
+#'   tags$head(
+#'     tags$title('My first page')
+#'   ),
+#'   tags$body(
+#'     h1('My first heading'),
+#'     p('My first paragraph, with some ',
+#'       strong('bold'),
+#'       ' text.'),
+#'     div(id='myDiv', class='simpleDiv',
+#'         'Here is a div with some attributes.')
+#'   )
+#' )
+#' cat(as.character(doc))
+NULL
+
+#' @rdname builder
+#' @format NULL
+#' @docType NULL
+#' @keywords NULL
 tags <- list(
   a = function(...) tag("a", list(...)),
   abbr = function(...) tag("abbr", list(...)),
@@ -316,24 +529,25 @@ tags <- list(
 )
 
 #' Mark Characters as HTML
-#' 
+#'
 #' Marks the given text as HTML, which means the \link{tag} functions will know
 #' not to perform HTML escaping on it.
-#' 
+#'
 #' @param text The text value to mark with HTML
 #' @param ... Any additional values to be converted to character and
 #'   concatenated together
 #' @return The same value, but marked as HTML.
-#' 
+#'
 #' @examples
 #' el <- div(HTML("I like <u>turtles</u>"))
 #' cat(as.character(el))
-#'   
+#'
 #' @export
 HTML <- function(text, ...) {
   htmlText <- c(text, as.character(list(...)))
   htmlText <- paste(htmlText, collapse=" ")
   attr(htmlText, "html") <- TRUE
+  class(htmlText) <- c("html", "character")
   htmlText
 }
 
