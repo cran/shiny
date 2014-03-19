@@ -1,6 +1,6 @@
-43d2d57f22377ac07fa5746c8eca80ba *DESCRIPTION
+a1a4aac71378992e85415289854a46a6 *DESCRIPTION
 17eef5b9c063dd2545f3497e028e0285 *NAMESPACE
-27463de3e671ac49c82c950e0d442385 *NEWS
+6a977cd7002c76ef44c043b2a848fe6b *NEWS
 552fe43f1e092f5a05a3e74c60190bd4 *R/bootstrap-layout.R
 f31df211cbd8dc4eb11ca73bbbe1c922 *R/bootstrap.R
 53cf75d7910edb26448d2f60d0f28d0d *R/cache.R
@@ -11,7 +11,7 @@ cdb9cd379ecc33d1da768400d9df6f9f *R/imageutils.R
 7ce278c013e8a67d6827d503aa6d9c35 *R/jqueryui.R
 4ee2ee61c81b4812168bdf0712021257 *R/map.R
 8eeb0fe130fb424a0f09c8da964fd889 *R/priorityqueue.R
-407ac582596e424000868df88ce6cfae *R/react.R
+2f57890429874da92fb642cd4aefefa2 *R/react.R
 6f9047f7e431e3d2dc953ab094b08c11 *R/reactives.R
 dbd9d8e7903ca4afdfff399b9410769b *R/run-url.R
 ecdb95d5cfab196e4512abb09799ba1c *R/sessioncontext.R
@@ -82,7 +82,7 @@ ee4bc64f30f3e9d1aed570562d8713e7 *inst/tests-js/lib/jasmine-1.3.1/MIT.LICENSE
 a031d8a5572858d6f4a8e0ed72bad703 *inst/tests/test-bootstrap.r
 d6b9446fc5817f0c45d918fc9a3e2d1b *inst/tests/test-gc.r
 aa5713ece6ccbc0b78f42cdad4147592 *inst/tests/test-input-handler.R
-b8bc4f77668c35f52de8ab9f341cc181 *inst/tests/test-reactivity.r
+c65cc05954a625cf4fb726865ec04257 *inst/tests/test-reactivity.r
 caab9ebff8926ae15d5af013659f10fc *inst/tests/test-staticdocs.R
 9f25491bbcfd12506a86b3f8d0028a80 *inst/tests/test-tags.r
 edce45a03c0b1ffe775546374c10aed0 *inst/tests/test-text.R

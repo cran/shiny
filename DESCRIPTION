@@ -1,8 +1,8 @@
 Package: shiny
 Type: Package
 Title: Web Application Framework for R
-Version: 0.9.0
-Date: 2014-03-18
+Version: 0.9.1
+Date: 2014-03-19
 Author: RStudio, Inc.
 Maintainer: Winston Chang <winston@rstudio.com>
 Description: Shiny makes it incredibly easy to build interactive web
@@ -22,7 +22,7 @@ Collate: 'bootstrap-layout.R' 'bootstrap.R' 'cache.R' 'map.R'
         'sessioncontext.R' 'utils.R' 'shiny.R' 'shinyui.R'
         'shinywrappers.R' 'showcase.R' 'slider.R' 'tags.R' 'tar.R'
         'timer.R' 'update-input.R'
-Packaged: 2014-03-18 19:25:11 UTC; yihui
+Packaged: 2014-03-19 18:50:47 UTC; ubuntu
 NeedsCompilation: no
 Repository: CRAN
-Date/Publication: 2014-03-18 21:22:08
+Date/Publication: 2014-03-19 20:56:50
