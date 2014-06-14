@@ -33,7 +33,7 @@ animationOptions <- function(interval=1000,
 # (www/shared/slider contains js, css, and img dependencies)
 slider <- function(inputId, min, max, value, step = NULL, ...,
                    round=FALSE, format='#,##0.#####', locale='us',
-                   ticks=TRUE, animate=FALSE) {
+                   ticks=TRUE, animate=FALSE, width=NULL) {
   # validate inputId
   inputId <- as.character(inputId)
   if (!is.character(inputId))
@@ -99,21 +99,22 @@ slider <- function(inputId, min, max, value, step = NULL, ...,
   }
 
   # build slider
+  dep <- htmlDependency("jslider", "1", c(href="shared/slider"),
+    script = "js/jquery.slider.min.js",
+    stylesheet = "css/jquery.slider.min.css"
+  )
   sliderFragment <- list(
-    singleton(tags$head(
-      tags$link(rel="stylesheet",
-                type="text/css",
-                href="shared/slider/css/jquery.slider.min.css"),
-
-      tags$script(src="shared/slider/js/jquery.slider.min.js")
-    )),
-    tags$input(
-      id=inputId, type="slider",
-      name=inputId, value=paste(value, collapse=';'), class="jslider",
-      'data-from'=min, 'data-to'=max, 'data-step'=step,
-      'data-skin'='plastic', 'data-round'=round, 'data-locale'=locale,
-      'data-format'=format, 'data-scale'=ticks,
-      'data-smooth'=FALSE
+    attachDependencies(
+      tags$input(
+        id=inputId, type="slider",
+        name=inputId, value=paste(value, collapse=';'), class="jslider",
+        'data-from'=min, 'data-to'=max, 'data-step'=step,
+        'data-skin'='plastic', 'data-round'=round, 'data-locale'=locale,
+        'data-format'=format, 'data-scale'=ticks,
+        'data-smooth'=FALSE,
+        'data-width'=validateCssUnit(width)
+      ),
+      dep
     )
   )
 
@@ -137,5 +138,5 @@ slider <- function(inputId, min, max, value, step = NULL, ...,
                       tags$span(class='pause', animate$pauseButton)))
   }
 
-  return(sliderFragment)
+  return(tagList(sliderFragment))
 }

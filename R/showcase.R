@@ -1,3 +1,5 @@
+#' @include globals.R
+NULL
 
 # Given the name of a license, return the appropriate link HTML for the
 # license, which may just be the name of the license if the name is
@@ -27,23 +29,32 @@ licenseLink <- function(licenseName) {
 # Returns tags containing showcase directives intended for the <HEAD> of the
 # document.
 showcaseHead <- function() {
+
+  deps  <- list(
+    htmlDependency("jqueryui", "1.10.4", c(href="shared/jqueryui/1.10.4"),
+      script = "jquery-ui.min.js"),
+    htmlDependency("showdown", "0.3.1", c(href="shared/showdown/compressed"),
+      script = "showdown.js"),
+    htmlDependency("font-awesome", "4.0.3", c(href="shared/font-awesome"),
+      stylesheet = "css/font-awesome.min.css"),
+    htmlDependency("highlight.js", "6.2", c(href="shared/highlight"),
+      script = "highlight.pack.js")
+  )
+
   mdfile <- file.path.ci(getwd(), 'Readme.md')
-  with(tags, tagList(
-    script(src="shared/highlight/highlight.pack.js"),
-    script(src="shared/showdown/compressed/showdown.js"),
-    script(src="shared/jqueryui/1.10.3/jquery-ui.min.js"),
+  html <- with(tags, tagList(
     script(src="shared/shiny-showcase.js"),
     link(rel="stylesheet", type="text/css",
          href="shared/highlight/rstudio.css"),
     link(rel="stylesheet", type="text/css",
          href="shared/shiny-showcase.css"),
-    link(rel="stylesheet", type="text/css",
-         href="shared/font-awesome/css/font-awesome.min.css"),
     if (file.exists(mdfile))
       script(type="text/markdown", id="showcase-markdown-content",
-        paste(readLines(mdfile), collapse="\n"))
+        paste(readLines(mdfile, warn = FALSE), collapse="\n"))
     else ""
   ))
+
+  return(attachDependencies(html, deps))
 }
 
 # Returns tags containing the application metadata (title and author) in
@@ -95,7 +106,7 @@ showcaseCodeTabs <- function(codeLicense) {
                   # we need to prevent the indentation of <code> ... </code>
                   HTML(format(tags$code(
                     class="language-r",
-                    paste(readLines(file.path.ci(getwd(), rFile)),
+                    paste(readLines(file.path.ci(getwd(), rFile), warn=FALSE),
                           collapse="\n")
                   ), indent = FALSE))))
         })),

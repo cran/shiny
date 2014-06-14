@@ -301,13 +301,8 @@ updateCheckboxGroupInput <- function(session, inputId, label = NULL,
   if (!is.null(selected))
     selected <- validateSelected(selected, choices, inputId)
 
-  options <- if (length(choices)) mapply(choices, names(choices),
-    SIMPLIFY = FALSE, USE.NAMES = FALSE,
-    FUN = function(value, name) {
-      list(value = value,
-           label = name)
-    }
-  )
+  options <- if (length(choices))
+    columnToRowData(list(value = choices, label = names(choices)))
 
   message <- dropNulls(list(label = label, options = options, value = selected))
 
@@ -392,3 +387,80 @@ updateRadioButtons <- updateCheckboxGroupInput
 #' }
 #' @export
 updateSelectInput <- updateCheckboxGroupInput
+
+#' @rdname updateSelectInput
+#' @param options a list of options (see \code{\link{selectizeInput}})
+#' @param server whether to store \code{choices} on the server side, and load
+#'   the select options dynamically on searching, instead of writing all
+#'   \code{choices} into the page at once (i.e., only use the client-side
+#'   version of \pkg{selectize.js})
+#' @export
+updateSelectizeInput <- function(
+  session, inputId, label = NULL, choices = NULL, selected = NULL,
+  options = list(), server = FALSE
+) {
+  if (length(options)) {
+    res <- checkAsIs(options)
+    cfg <- tags$script(
+      type = 'application/json',
+      `data-for` = inputId,
+      `data-eval` = if (length(res$eval)) HTML(toJSON(res$eval)),
+      HTML(toJSON(res$options))
+    )
+    session$sendInputMessage(inputId, list(newOptions = as.character(cfg)))
+  }
+  if (!server) {
+    return(updateSelectInput(session, inputId, label, choices, selected))
+  }
+  # in the server mode, the choices are not available before we type, so we
+  # cannot really pre-select any options, but here we insert the `selected`
+  # options into selectize forcibly
+  value <- unname(selected)
+  selected <- choicesWithNames(selected)
+  message <- dropNulls(list(
+    label = label,
+    value = value,
+    selected = if (length(selected)) {
+      columnToRowData(list(label = names(selected), value = selected))
+    },
+    url = session$registerDataObj(inputId, choices, selectizeJSON)
+  ))
+  session$sendInputMessage(inputId, message)
+}
+
+selectizeJSON <- function(data, req) {
+  query <- parseQueryString(req$QUERY_STRING)
+  # extract the query variables, conjunction (and/or), search string, maximum options
+  var <- fromJSON(query$field)
+  cjn <- if (query$conju == 'and') all else any
+  # all keywords in lower-case, for case-insensitive matching
+  key <- unique(strsplit(tolower(query$query), '\\s+')[[1]])
+  if (identical(key, '')) key <- character(0)
+  mop <- query$maxop
+
+  # convert a single vector to a data frame so it returns {label: , value: }
+  # later in JSON; other objects return arbitrary JSON {x: , y: , foo: , ...}
+  data <- if (is.atomic(data)) {
+    data <- choicesWithNames(data)
+    data.frame(label = names(data), value = data, stringsAsFactors = FALSE)
+  } else as.data.frame(data, stringsAsFactors = FALSE)
+
+  # start searching for keywords in all specified columns
+  idx <- logical(nrow(data))
+  if (length(key)) for (v in var) {
+    matches <- do.call(
+      cbind,
+      lapply(key, function(k) {
+        grepl(k, tolower(as.character(data[[v]])), fixed = TRUE)
+      })
+    )
+    # merge column matches using OR, and match multiple keywords in one column
+    # using the conjunction setting (AND or OR)
+    idx <- idx | apply(matches, 1, cjn)
+  }
+  # only return the first n rows (n = maximum options in configuration)
+  idx <- head(which(idx), mop)
+  data <- data[idx, ]
+
+  httpResponse(200, 'application/json', toJSON(columnToRowData(data)))
+}

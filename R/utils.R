@@ -1,3 +1,7 @@
+#' @include globals.R
+#' @include map.R
+NULL
+
 #' Make a random number generator repeatable
 #'
 #' Given a function that generates random data, returns a wrapped version of
@@ -40,8 +44,87 @@ repeatable <- function(rngfunc, seed = runif(1, 0, .Machine$integer.max)) {
   }
 }
 
+# Temporarily set x in env to value, evaluate expr, and
+# then restore x to its original state
+withTemporary <- function(env, x, value, expr, unset = FALSE) {
+
+  if (exists(x, envir = env, inherits = FALSE)) {
+    oldValue <- get(x, envir = env, inherits = FALSE)
+    on.exit(
+      assign(x, oldValue, envir = env, inherits = FALSE),
+      add = TRUE)
+  } else {
+    on.exit(
+      rm(list = x, envir = env, inherits = FALSE),
+      add = TRUE
+    )
+  }
+
+  if (!missing(value) && !isTRUE(unset))
+    assign(x, value, envir = env, inherits = FALSE)
+  else {
+    if (exists(x, envir = env, inherits = FALSE))
+      rm(list = x, envir = env, inherits = FALSE)
+  }
+  force(expr)
+}
+
+.globals$ownSeed <- NULL
+# Evaluate an expression using Shiny's own private stream of
+# randomness (not affected by set.seed).
+withPrivateSeed <- function(expr) {
+  withTemporary(.GlobalEnv, ".Random.seed",
+    .globals$ownSeed, unset=is.null(.globals$ownSeed), {
+      tryCatch({
+        expr
+      }, finally = {
+        .globals$ownSeed <- getExists('.Random.seed', 'numeric', globalenv())
+      })
+    }
+  )
+}
+
+# a homemade version of set.seed(NULL) for backward compatibility with R 2.15.x
+reinitializeSeed <- if (getRversion() >= '3.0.0') {
+  function() set.seed(NULL)
+} else function() {
+  if (exists('.Random.seed', globalenv()))
+    rm(list = '.Random.seed', pos = globalenv())
+  stats::runif(1)  # generate any random numbers so R can reinitialize the seed
+}
+
+# Version of runif that runs with private seed
+p_runif <- function(...) {
+  withPrivateSeed(runif(...))
+}
+
+# Version of sample that runs with private seed
+p_sample <- function(...) {
+  withPrivateSeed(sample(...))
+}
+
+# Return a random integral value in the range [min, max).
+# If only one argument is passed, then min=0 and max=argument.
+randomInt <- function(min, max) {
+  if (missing(max)) {
+    max <- min
+    min <- 0
+  }
+  if (min < 0 || max <= min)
+    stop("Invalid min/max values")
+
+  min + sample(max-min, 1)-1
+}
+
+p_randomInt <- function(...) {
+  withPrivateSeed(randomInt(...))
+}
+
 `%OR%` <- function(x, y) {
-  ifelse(is.null(x) || is.na(x), y, x)
+  if (is.null(x) || isTRUE(is.na(x)))
+    y
+  else
+    x
 }
 
 `%AND%` <- function(x, y) {
@@ -66,6 +149,99 @@ nullOrEmpty <- function(x) {
 # Given a vector or list, drop all the NULL items in it
 dropNullsOrEmpty <- function(x) {
   x[!vapply(x, nullOrEmpty, FUN.VALUE=logical(1))]
+}
+
+# Combine dir and (file)name into a file path. If a file already exists with a
+# name differing only by case, then use it instead.
+file.path.ci <- function(dir, name) {
+  default <- file.path(dir, name)
+  if (file.exists(default))
+    return(default)
+  if (!file.exists(dir))
+    return(default)
+
+  matches <- list.files(dir, name, ignore.case=TRUE, full.names=TRUE,
+    include.dirs=TRUE)
+  if (length(matches) == 0)
+    return(default)
+  return(matches[[1]])
+}
+
+# Attempt to join a path and relative path, and turn the result into a
+# (normalized) absolute path. The result will only be returned if it is an
+# existing file/directory and is a descendant of dir.
+#
+# Example:
+# resolve("/Users/jcheng", "shiny")  # "/Users/jcheng/shiny"
+# resolve("/Users/jcheng", "./shiny")  # "/Users/jcheng/shiny"
+# resolve("/Users/jcheng", "shiny/../shiny/")  # "/Users/jcheng/shiny"
+# resolve("/Users/jcheng", ".")  # NULL
+# resolve("/Users/jcheng", "..")  # NULL
+# resolve("/Users/jcheng", "shiny/..")  # NULL
+resolve <- function(dir, relpath) {
+  abs.path <- file.path(dir, relpath)
+  if (!file.exists(abs.path))
+    return(NULL)
+  abs.path <- normalizePath(abs.path, winslash='/', mustWork=TRUE)
+  dir <- normalizePath(dir, winslash='/', mustWork=TRUE)
+  # trim the possible trailing slash under Windows (#306)
+  if (.Platform$OS.type == 'windows') dir <- sub('/$', '', dir)
+  if (nchar(abs.path) <= nchar(dir) + 1)
+    return(NULL)
+  if (substr(abs.path, 1, nchar(dir)) != dir ||
+      substr(abs.path, nchar(dir)+1, nchar(dir)+1) != '/') {
+    return(NULL)
+  }
+  return(abs.path)
+}
+
+# This is a wrapper for download.file and has the same interface.
+# The only difference is that, if the protocol is https, it changes the
+# download settings, depending on platform.
+download <- function(url, ...) {
+  # First, check protocol. If http or https, check platform:
+  if (grepl('^https?://', url)) {
+
+    # If Windows, call setInternet2, then use download.file with defaults.
+    if (.Platform$OS.type == "windows") {
+      # If we directly use setInternet2, R CMD CHECK gives a Note on Mac/Linux
+      mySI2 <- `::`(utils, 'setInternet2')
+      # Store initial settings
+      internet2_start <- mySI2(NA)
+      on.exit(mySI2(internet2_start))
+
+      # Needed for https
+      mySI2(TRUE)
+      download.file(url, ...)
+
+    } else {
+      # If non-Windows, check for curl/wget/lynx, then call download.file with
+      # appropriate method.
+
+      if (nzchar(Sys.which("wget")[1])) {
+        method <- "wget"
+      } else if (nzchar(Sys.which("curl")[1])) {
+        method <- "curl"
+
+        # curl needs to add a -L option to follow redirects.
+        # Save the original options and restore when we exit.
+        orig_extra_options <- getOption("download.file.extra")
+        on.exit(options(download.file.extra = orig_extra_options))
+
+        options(download.file.extra = paste("-L", orig_extra_options))
+
+      } else if (nzchar(Sys.which("lynx")[1])) {
+        method <- "lynx"
+      } else {
+        stop("no download method found")
+      }
+
+      download.file(url, method = method, ...)
+    }
+
+  } else {
+    download.file(url, ...)
+  }
 }
 
 knownContentTypes <- Map$new()
@@ -380,7 +556,8 @@ Callbacks <- setRefClass(
 )
 
 # convert a data frame to JSON as required by DataTables request
-dataTablesJSON <- function(data, query) {
+dataTablesJSON <- function(data, req) {
+  query <- req$QUERY_STRING
   n <- nrow(data)
   with(parseQueryString(query), {
     useRegex <- function(j, envir = parent.frame()) {
@@ -440,14 +617,19 @@ dataTablesJSON <- function(data, query) {
       fdata <- data[i, , drop = FALSE]  # filtered data
     } else fdata <- data
     fdata <- unname(as.matrix(fdata))
+    # WAT: toJSON(list(x = matrix(nrow = 0, ncol = 1))) => {"x": } (#299)
     if (nrow(fdata) == 0) fdata <- list()
+    # WAT: toJSON(list(x = matrix(1:2))) => {x: [ [1], [2] ]}, however,
+    # toJSON(list(x = matrix(1))) => {x: [ 1 ]} (loss of dimension, #429)
+    if (all(dim(fdata) == 1)) fdata <- list(list(fdata[1, 1]))
 
-    toJSON(list(
+    res <- toJSON(list(
       sEcho = as.integer(sEcho),
       iTotalRecords = n,
       iTotalDisplayRecords = nrow(data),
       aaData = fdata
     ))
+    httpResponse(200, 'application/json', res)
   })
 }
 
@@ -488,6 +670,8 @@ checkAsIs <- function(options) {
 srcrefFromShinyCall <- function(expr) {
   srcrefs <- attr(expr, "srcref")
   num_exprs <- length(srcrefs)
+  if (num_exprs < 1)
+    return(NULL)
   c(srcrefs[[1]][1], srcrefs[[1]][2],
     srcrefs[[num_exprs]][3], srcrefs[[num_exprs]][4],
     srcrefs[[1]][5], srcrefs[[num_exprs]][6])
@@ -529,4 +713,218 @@ srcFileOfRef <- function(srcref) {
 formatNoSci <- function(x) {
   if (is.null(x)) return(NULL)
   format(x, scientific = FALSE, digits = 15)
+}
+
+# Returns a function that calls the given func and caches the result for
+# subsequent calls, unless the given file's mtime changes.
+cachedFuncWithFile <- function(dir, file, func, case.sensitive = FALSE) {
+  dir <- normalizePath(dir, mustWork=TRUE)
+  mtime <- NA
+  value <- NULL
+  function(...) {
+    fname <- if (case.sensitive)
+      file.path(dir, file)
+    else
+      file.path.ci(dir, file)
+
+    now <- file.info(fname)$mtime
+    if (!identical(mtime, now)) {
+      value <<- func(fname, ...)
+      mtime <<- now
+    }
+    value
+  }
+}
+
+# Returns a function that sources the file and caches the result for subsequent
+# calls, unless the file's mtime changes.
+cachedSource <- function(dir, file, case.sensitive = FALSE) {
+  dir <- normalizePath(dir, mustWork=TRUE)
+  cachedFuncWithFile(dir, file, function(fname, ...) {
+    if (file.exists(fname))
+      return(source(fname, ...))
+    else
+      return(NULL)
+  })
+}
+
+# turn column-based data to row-based data (mainly for JSON), e.g. data.frame(x
+# = 1:10, y = 10:1) ==> list(list(x = 1, y = 10), list(x = 2, y = 9), ...)
+columnToRowData <- function(data) {
+  do.call(
+    mapply, c(
+      list(FUN = function(...) list(...), SIMPLIFY = FALSE, USE.NAMES = FALSE),
+      as.list(data)
+    )
+  )
+}
+
+#' Validate input values and other conditions
+#'
+#' For an output rendering function (e.g. \code{\link{renderPlot}()}), you may
+#' need to check that certain input values are available and valid before you
+#' can render the output. \code{validate} gives you a convenient mechanism for
+#' doing so.
+#'
+#' The \code{validate} function takes any number of (unnamed) arguments, each of
+#' which represents a condition to test. If any of the conditions represent
+#' failure, then a special type of error is signaled which stops execution. If
+#' this error is not handled by application-specific code, it is displayed to
+#' the user by Shiny.
+#'
+#' An easy way to provide arguments to \code{validate} is to use the \code{need}
+#' function, which takes an expression and a string; if the expression is
+#' considered a failure, then the string will be used as the error message. The
+#' \code{need} function considers its expression to be a failure if it is any of
+#' the following:
+#'
+#' \itemize{
+#'   \item{\code{FALSE}}
+#'   \item{\code{NULL}}
+#'   \item{\code{""}}
+#'   \item{An empty atomic vector}
+#'   \item{An atomic vector that contains only missing values}
+#'   \item{A logical vector that contains all \code{FALSE} or missing values}
+#'   \item{An object of class \code{"try-error"}}
+#'   \item{A value that represents an unclicked \code{\link{actionButton}}}
+#' }
+#'
+#' If any of these values happen to be valid, you can explicitly turn them to
+#' logical values. For example, if you allow \code{NA} but not \code{NULL}, you
+#' can use the condition \code{!is.null(input$foo)}, because \code{!is.null(NA)
+#' == TRUE}.
+#'
+#' If you need validation logic that differs significantly from \code{need}, you
+#' can create other validation test functions. A passing test should return
+#' \code{NULL}. A failing test should return an error message as a
+#' single-element character vector, or if the failure should happen silently,
+#' \code{FALSE}.
+#'
+#' Because validation failure is signaled as an error, you can use
+#' \code{validate} in reactive expressions, and validation failures will
+#' automatically propagate to outputs that use the reactive expression. In
+#' other words, if reactive expression \code{a} needs \code{input$x}, and two
+#' outputs use \code{a} (and thus depend indirectly on \code{input$x}), it's
+#' not necessary for the outputs to validate \code{input$x} explicitly, as long
+#' as \code{a} does validate it.
+#'
+#' @param ... A list of tests. Each test should equal \code{NULL} for success,
+#'   \code{FALSE} for silent failure, or a string for failure with an error
+#'   message.
+#' @param errorClass A CSS class to apply. The actual CSS string will have
+#'   \code{shiny-output-error-} prepended to this value.
+#' @export
+#' @examples
+#' # in ui.R
+#' fluidPage(
+#'   checkboxGroupInput('in1', 'Check some letters', choices = head(LETTERS)),
+#'   selectizeInput('in2', 'Select a state', choices = state.name),
+#'   plotOutput('plot')
+#' )
+#'
+#' # in server.R
+#' function(input, output) {
+#'   output$plot <- renderPlot({
+#'     validate(
+#'       need(input$in1, 'Check at least one letter!'),
+#'       need(input$in2 == '', 'Please choose a state.')
+#'     )
+#'     plot(1:10, main = paste(c(input$in1, input$in2), collapse = ', '))
+#'   })
+#' }
+validate <- function(..., errorClass = character(0)) {
+  results <- sapply(list(...), function(x) {
+    # Detect NULL or NA
+    if (is.null(x))
+      return(NA_character_)
+    else if (identical(x, FALSE))
+      return("")
+    else if (is.character(x))
+      return(paste(as.character(x), collapse = "\n"))
+    else
+      stop("Unexpected validation result: ", as.character(x))
+  })
+
+  results <- na.omit(results)
+  if (length(results) == 0)
+    return(invisible())
+
+  # There may be empty strings remaining; these are message-less failures that
+  # started as FALSE
+  results <- results[nzchar(results)]
+
+  stopWithCondition(c("validation", errorClass), paste(results, collapse="\n"))
+}
+
+#' @param expr An expression to test. The condition will pass if the expression
+#'   meets the conditions spelled out in Details.
+#' @param message A message to convey to the user if the validation condition is
+#'   not met. If no message is provided, one will be created using \code{label}.
+#'   To fail with no message, use \code{FALSE} for the message.
+#' @param label A human-readable name for the field that may be missing. This
+#'   parameter is not needed if \code{message} is provided, but must be provided
+#'   otherwise.
+#' @export
+#' @rdname validate
+need <- function(expr, message = paste(label, "must be provided"), label) {
+
+  force(message) # Fail fast on message/label both being missing
+
+  if (!isTruthy(expr))
+    return(message)
+  else
+    return(invisible(NULL))
+}
+
+isTruthy <- function(x) {
+  if (inherits(x, 'try-error'))
+    return(FALSE)
+
+  if (!is.atomic(x))
+    return(TRUE)
+
+  if (is.null(x))
+    return(FALSE)
+  if (length(x) == 0)
+    return(FALSE)
+  if (all(is.na(x)))
+    return(FALSE)
+  if (is.character(x) && !any(nzchar(na.omit(x))))
+    return(FALSE)
+  if (inherits(x, 'shinyActionButtonValue') && x == 0)
+    return(FALSE)
+  if (is.logical(x) && !any(na.omit(x)))
+    return(FALSE)
+
+  return(TRUE)
+}
+
+# add class(es) to the error condition, which will be used as names of CSS
+# classes, e.g. shiny-output-error shiny-output-error-validation
+stopWithCondition <- function(class, message) {
+  cond <- structure(
+    list(message = message),
+    class = c(class, 'shiny.silent.error', 'error', 'condition')
+  )
+  stop(cond)
+}
+
+#' Collect information about the Shiny Server environment
+#'
+#' This function returns the information about the current Shiny Server, such as
+#' its version, and whether it is the open source edition or professional
+#' edition. If the app is not served through the Shiny Server, this function
+#' just returns \code{list(shinyServer = FALSE)}.
+#' @export
+#' @return A list of the Shiny Server information.
+serverInfo <- function() {
+  .globals$serverInfo
+}
+.globals$serverInfo <- list(shinyServer = FALSE)
+
+setServerInfo <- function(...) {
+  infoOld <- serverInfo()
+  infoNew <- list(...)
+  infoOld[names(infoNew)] <- infoNew
+  .globals$serverInfo <- infoOld
 }

@@ -5,12 +5,17 @@
 
   var exports = window.Shiny = window.Shiny || {};
 
+  var isQt = false;
   // For easy handling of Qt quirks using CSS
   if (/\bQt\//.test(window.navigator.userAgent)) {
     $(document.documentElement).addClass('qt');
+    isQt = true;
   }
 
   $(document).on('submit', 'form:not([action])', function(e) {
+    e.preventDefault();
+  });
+  $(document).on('click', 'a.action-button', function(e) {
     e.preventDefault();
   });
 
@@ -500,6 +505,15 @@
           protocol = 'wss:';
 
         var defaultPath = window.location.pathname;
+        // some older WebKit browsers return the pathname already decoded;
+        // if we find invalid URL characters in the path, encode them
+        if (!/^([$#!&-;=?-[\]_a-z~]|%[0-9a-fA-F]{2})+$/.test(defaultPath)) {
+          defaultPath = encodeURI(defaultPath);
+          // Bizarrely, QtWebKit requires us to encode these characters *twice*
+          if (isQt) {
+            defaultPath = encodeURI(defaultPath);
+          }
+        }
         if (!/\/$/.test(defaultPath))
           defaultPath += '/';
         defaultPath += 'websocket/';
@@ -1058,10 +1072,25 @@
       this.renderError(el, err);
     };
     this.renderError = function(el, err) {
-      $(el).addClass('shiny-output-error').text(err.message);
+      this.clearError(el);
+      if (err.message === '') {
+        // not really error, but we just need to wait (e.g. action buttons)
+        $(el).empty();
+        return;
+      }
+      var errClass = 'shiny-output-error';
+      if (err.type !== null) {
+        // use the classes of the error condition as CSS class names
+        errClass = errClass + ' ' + $.map(asArray(err.type), function(type) {
+          return errClass + '-' + type;
+        }).join(' ');
+      }
+      $(el).addClass(errClass).text(err.message);
     };
     this.clearError = function(el) {
-      $(el).removeClass('shiny-output-error');
+      $(el).attr('class', function(i, c) {
+        return c.replace(/(^|\s)shiny-output-error\S*/g, '');
+      });
     };
     this.showProgress = function(el, show) {
       var RECALC_CLASS = 'recalculating';
@@ -1209,13 +1238,17 @@
       exports.unbindAll(el);
 
       var html;
+      var dependencies = [];
       if (data === null) {
         html = '';
-      } else {
+      } else if (typeof(data) === 'string') {
         html = data;
+      } else if (typeof(data) === 'object') {
+        html = data.html;
+        dependencies = data.deps;
       }
 
-      exports.renderHtml(html, el);
+      exports.renderHtml(html, el, dependencies);
       exports.initializeInputs(el);
       exports.bindAll(el);
     }
@@ -1223,9 +1256,68 @@
   outputBindings.register(htmlOutputBinding, 'shiny.htmlOutput');
 
   // Render HTML in a DOM element, inserting singletons into head as needed
-  exports.renderHtml = function(html, el) {
+  exports.renderHtml = function(html, el, dependencies) {
+    if (dependencies) {
+      $.each(dependencies, function(i, dep) {
+        renderDependency(dep);
+      });
+    }
     return singletons.renderHtml(html, el);
   };
+
+  function asArray(value) {
+    if (value === null)
+      return [];
+    if ($.isArray(value))
+      return value;
+    return [value];
+  }
+
+  var htmlDependencies = {};
+  function registerDependency(name, version) {
+    htmlDependencies[name] = version;
+  }
+
+  // Client-side dependency resolution and rendering
+  function renderDependency(dep) {
+    if (htmlDependencies.hasOwnProperty(dep.name))
+      return false;
+
+    registerDependency(dep.name, dep.version);
+
+    var href = dep.src.href;
+
+    var $head = $("head").first();
+
+    if (dep.meta) {
+      var metas = $.map(asArray(dep.meta), function(content, name) {
+        return $("<meta>").attr("name", name).attr("content", content);
+      });
+      $head.append(metas);
+    }
+
+    if (dep.stylesheet) {
+      var stylesheets = $.map(asArray(dep.stylesheet), function(stylesheet) {
+        return $("<link rel='stylesheet' type='text/css'>")
+          .attr("href", href + "/" + stylesheet);
+      });
+      $head.append(stylesheets);
+    }
+
+    if (dep.script) {
+      var scripts = $.map(asArray(dep.script), function(scriptName) {
+        return $("<script>").attr("src", href + "/" + scriptName);
+      });
+      $head.append(scripts);
+    }
+
+    if (dep.head) {
+      var $newHead = $("<head></head>");
+      $newHead.html(dep.head);
+      $head.append($newHead.children());
+    }
+    return true;
+  }
 
   var singletons = {
     knownSingletons: {},
@@ -1630,7 +1722,9 @@
              };
     },
     initialize: function(el) {
-      $(el).slider();
+      var $el = $(el);
+      $el.slider();
+      $el.next('span.jslider').css('width', $el.data('width'));
     }
   });
   inputBindings.register(sliderInputBinding, 'shiny.sliderInput');
@@ -1974,8 +2068,8 @@
     },
     setValue: function(el, value) {
       var selectize = this._selectize(el);
-      if (selectize) {
-        selectize[0].selectize.setValue(value);
+      if (selectize !== undefined) {
+        selectize.setValue(value);
       } else $(el).val(value);
     },
     getState: function(el) {
@@ -1993,15 +2087,14 @@
       };
     },
     receiveMessage: function(el, data) {
-      var $el = $(el);
+      var $el = $(el), selectize;
 
       // This will replace all the options
       if (data.hasOwnProperty('options')) {
         // Clear existing options and add each new one
         $el.empty();
-        var selectize = this._selectize(el);
-        if (selectize) {
-          selectize = selectize[0].selectize;
+        selectize = this._selectize(el);
+        if (selectize !== undefined) {
           selectize.clearOptions();
           // Selectize.js doesn't maintain insertion order on Chrome on Mac
           // with >10 items if inserted using addOption (versus being present
@@ -2024,6 +2117,41 @@
         }
       }
 
+      // re-initialize selectize
+      if (data.hasOwnProperty('newOptions')) {
+        $el.parent()
+           .find('script[data-for="' + $escape(el.id) + '"]')
+           .replaceWith(data.newOptions);
+        this._selectize(el, true);
+      }
+
+      // use server-side processing for selectize
+      if (data.hasOwnProperty('url')) {
+        selectize = this._selectize(el);
+        selectize.clearOptions();
+        selectize.settings.load = function(query, callback) {
+          if (!query.length) return callback();
+          $.ajax({
+            url: data.url,
+            data: {
+              query: query,
+              field: JSON.stringify(selectize.settings.searchField),
+              conju: selectize.settings.searchConjunction,
+              maxop: selectize.settings.maxOptions
+            },
+            type: 'GET',
+            error: function() {
+              callback();
+            },
+            success: function(res) {
+              callback(res);
+            }
+          });
+        };
+        if (data.hasOwnProperty('selected'))
+          selectize.addOption(data.selected);
+      }
+
       if (data.hasOwnProperty('value'))
         this.setValue(el, data.value);
 
@@ -2043,39 +2171,47 @@
     initialize: function(el) {
       this._selectize(el);
     },
-    _selectize: function(el) {
+    _selectize: function(el, update) {
       if (!$.fn.selectize) return;
       var $el = $(el);
       var config = $el.parent().find('script[data-for="' + $escape(el.id) + '"]');
-      if (config.length > 0) {
-        var options = $.extend({
-          labelField: 'label',
-          valueField: 'value',
-          searchField: ['label']
-        }, JSON.parse(config.html()));
-        if (config.data('nonempty') !== undefined) {
-          options = $.extend(options, {
-            onItemRemove: function(value) {
-              if (this.getValue() === "")
-                $("select#" + $escape(el.id)).empty().append($("<option/>", {
-                  "value": value, "selected": true
-                })).trigger("change");
-            },
-            onDropdownClose: function($dropdown) {
-              if (this.getValue() === "")
-                this.setValue($("select#" + $escape(el.id)).val());
-            }
-          });
-        }
-        // options that should be eval()ed
-        if (config.data('eval') instanceof Array)
-          $.each(config.data('eval'), function(i, x) {
-            /*jshint evil: true*/
-            options[x] = eval('(' + options[x] + ')');
-          });
-
-        return $el.selectize(options);
+      if (config.length === 0) return;
+      var options = $.extend({
+        labelField: 'label',
+        valueField: 'value',
+        searchField: ['label']
+      }, JSON.parse(config.html()));
+      // selectize created from selectInput()
+      if (config.data('nonempty') !== undefined) {
+        options = $.extend(options, {
+          onItemRemove: function(value) {
+            if (this.getValue() === "")
+              $("select#" + $escape(el.id)).empty().append($("<option/>", {
+                "value": value,
+                "selected": true
+              })).trigger("change");
+          },
+          onDropdownClose: function($dropdown) {
+            if (this.getValue() === "")
+              this.setValue($("select#" + $escape(el.id)).val());
+          }
+        });
       }
+      // options that should be eval()ed
+      if (config.data('eval') instanceof Array)
+        $.each(config.data('eval'), function(i, x) {
+          /*jshint evil: true*/
+          options[x] = eval('(' + options[x] + ')');
+        });
+      var control = $el.selectize(options)[0].selectize;
+      // .selectize() does not really update settings; must destroy and rebuild
+      if (update) {
+        var settings = $.extend(control.settings, options);
+        control.destroy();
+        control = $el.selectize(settings)[0].selectize;
+      }
+      $el.next('div.selectize-control').css('width', config.data('width'));
+      return control;
     }
   });
   inputBindings.register(selectInputBinding, 'shiny.selectInput');
@@ -2323,6 +2459,9 @@
     },
     setValue: function(el, value) {
       $(el).data('val', value);
+    },
+    getType: function(el) {
+      return 'shiny.action';
     },
     subscribe: function(el, callback) {
       $(el).on("click.actionButtonInputBinding", function(e) {
@@ -2704,7 +2843,7 @@
           binding.subscribe(el, thisCallback);
           $(el).data('shiny-input-binding', binding);
           $(el).addClass('shiny-bound-input');
-          var ratePolicy = binding.getRatePolicy();
+          var ratePolicy = binding.getRatePolicy(el);
           if (ratePolicy !== null) {
             inputsRate.setRatePolicy(
               effectiveId,
@@ -2992,6 +3131,14 @@
     var singletonText = initialValues['.clientdata_singletons'] =
         $('script[type="application/shiny-singletons"]').text();
     singletons.registerNames(singletonText.split(/,/));
+
+    var dependencyText = $('script[type="application/html-dependencies"]').text();
+    $.each(dependencyText.split(/;/), function(i, depStr) {
+      var match = /\s*^(.+)\[(.+)\]\s*$/.exec(depStr);
+      if (match) {
+        registerDependency(match[1], match[2]);
+      }
+    });
 
     // We've collected all the initial values--start the server process!
     inputsNoResend.reset(initialValues);

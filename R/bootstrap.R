@@ -1,3 +1,6 @@
+#' @include utils.R
+NULL
+
 #' Create a Bootstrap page
 #'
 #' Create a Shiny UI page that loads the CSS and JavaScript for
@@ -34,43 +37,37 @@ bootstrapPage <- function(..., title = NULL, responsive = TRUE, theme = NULL) {
     }
     cssExt <- ext(".css")
     jsExt = ext(".js")
-    bs <- "shared/bootstrap/"
-
-    # apply theme if requested
-    if (is.null(theme))
-      cssHref <- paste(bs, "css/bootstrap", cssExt, sep="")
-    else
-      cssHref <- theme
-
-    result <- tags$head(
-      tags$link(rel="stylesheet", type="text/css", href=cssHref),
-      tags$script(src=paste(bs, "js/bootstrap", jsExt, sep=""))
+    bs <- c(
+      href = "shared/bootstrap",
+      file = system.file("www/shared/bootstrap", package = "shiny")
     )
 
-    if (!is.null(title))
-      result <- tagAppendChild(result, tags$title(title))
-
-    if (responsive) {
-      result <- tagAppendChild(
-        result,
-        tags$meta(name="viewport",
-                  content="width=device-width, initial-scale=1.0"))
-      result <- tagAppendChild(
-        result,
-        tags$link(rel="stylesheet",
-                  type="text/css",
-                  href=paste(bs, "css/bootstrap-responsive", cssExt, sep="")))
-    }
-
-    result
+    list(
+      htmlDependency("bootstrap", "2.3.2", bs,
+        script = sprintf("js/bootstrap%s", jsExt),
+        stylesheet = if (is.null(theme))
+          sprintf("css/bootstrap%s", cssExt)
+      ),
+      if (responsive) {
+        htmlDependency("bootstrap-responsive", "2.3.2", bs,
+          stylesheet = sprintf("css/bootstrap-responsive%s", cssExt),
+          meta = list(viewport = "width=device-width, initial-scale=1.0")
+        )
+      }
+    )
   }
 
-  tagList(
-    # inject bootstrap requirements into head
-    importBootstrap(),
+  attachDependencies(
+    tagList(
+      if (!is.null(title)) tags$head(tags$title(title)),
+      if (!is.null(theme)) {
+        tags$head(tags$link(rel="stylesheet", type="text/css", href = theme))
+      },
 
-    # remainder of tags passed to the function
-    list(...)
+      # remainder of tags passed to the function
+      list(...)
+    ),
+    importBootstrap()
   )
 }
 
@@ -213,7 +210,7 @@ navbarPage <- function(title,
 
   # built the container div dynamically to support optional collapsability
   if (collapsable) {
-    navId <- paste("navbar-", as.integer(stats::runif(1, 1, 10000)), sep="")
+    navId <- paste("navbar-", p_randomInt(1000, 10000), sep="")
     containerDiv <- div(class="container",
                         tags$button(type="button",
                                     class="btn btn-navbar",
@@ -431,7 +428,7 @@ conditionalPanel <- function(condition, ...) {
 #' @export
 textInput <- function(inputId, label, value = "") {
   tagList(
-    tags$label(label, `for` = inputId),
+    label %AND% tags$label(label, `for` = inputId),
     tags$input(id = inputId, type="text", value=value)
   )
 }
@@ -467,7 +464,7 @@ numericInput <- function(inputId, label, value, min = NA, max = NA, step = NA) {
     inputTag$attribs$step = step
 
   tagList(
-    tags$label(label, `for` = inputId),
+    label %AND% tags$label(label, `for` = inputId),
     inputTag
   )
 }
@@ -514,7 +511,7 @@ fileInput <- function(inputId, label, multiple = FALSE, accept = NULL) {
     inputTag$attribs$accept <- paste(accept, collapse=',')
 
   tagList(
-    tags$label(label),
+    label %AND% tags$label(label),
     inputTag,
     tags$div(
       id=paste(inputId, "_progress", sep=""),
@@ -556,10 +553,11 @@ checkboxInput <- function(inputId, label, value = FALSE) {
 #' selected values.
 #'
 #' @param inputId Input variable to assign the control's value to.
-#' @param label Display label for the control.
+#' @param label Display label for the control, or \code{NULL}.
 #' @param choices List of values to show checkboxes for. If elements of the list
 #'   are named then that name rather than the value is displayed to the user.
 #' @param selected The values that should be initially selected, if any.
+#' @param inline If \code{TRUE}, render the choices inline (i.e. horizontally)
 #' @return A list of HTML elements that can be added to a UI definition.
 #'
 #' @family input elements
@@ -572,7 +570,7 @@ checkboxInput <- function(inputId, label, value = FALSE) {
 #'                      "Gears" = "gear"))
 #'
 #' @export
-checkboxGroupInput <- function(inputId, label, choices, selected = NULL) {
+checkboxGroupInput <- function(inputId, label, choices, selected = NULL, inline = FALSE) {
   # resolve names
   choices <- choicesWithNames(choices)
   if (!is.null(selected))
@@ -592,7 +590,7 @@ checkboxGroupInput <- function(inputId, label, choices, selected = NULL) {
     if (value %in% selected)
       inputTag$attribs$checked <- "checked"
 
-    tags$label(class = "checkbox",
+    tags$label(class = if (inline) "checkbox inline" else "checkbox",
                inputTag,
                tags$span(name))
     }
@@ -608,6 +606,8 @@ checkboxGroupInput <- function(inputId, label, choices, selected = NULL) {
 # Before shiny 0.9, `selected` refers to names/labels of `choices`; now it
 # refers to values. Below is a function for backward compatibility.
 validateSelected <- function(selected, choices, inputId) {
+  # drop names, otherwise toJSON() keeps them too
+  selected <- unname(selected)
   if (is.list(choices)) {
     # <optgroup> is not there yet
     if (any(sapply(choices, length) > 1)) return(selected)
@@ -620,7 +620,7 @@ validateSelected <- function(selected, choices, inputId) {
   i <- (selected %in% nms) & !(selected %in% choices)
   if (any(i)) {
     warnFun <- if (all(i)) {
-      # replace names with values; drop names, otherwise toJSON() keeps them too
+      # replace names with values
       selected <- unname(choices[selected])
       warning
     } else stop  # stop when it is ambiguous (some labels == values)
@@ -648,7 +648,7 @@ helpText <- function(...) {
 }
 
 controlLabel <- function(controlName, label) {
-  tags$label(class = "control-label", `for` = controlName, label)
+  label %AND% tags$label(class = "control-label", `for` = controlName, label)
 }
 
 # Takes a vector or list, and adds names (same as the value) to any entries
@@ -675,11 +675,13 @@ choicesWithNames <- function(choices) {
 #' Create a select list that can be used to choose a single or
 #' multiple items from a list of values.
 #'
-#' \code{selectizeInput()} uses the JavaScript library \pkg{selectize.js}
-#' (\url{https://github.com/brianreavis/selectize.js}) to extend the basic
-#' select input element.
+#' By default, \code{selectInput()} and \code{selectizeInput()} use the
+#' JavaScript library \pkg{selectize.js} (\url{https://github.com/brianreavis/selectize.js})
+#' to instead of the basic select input element. To use the standard HTML select
+#' input element, use \code{selectInput()} with \code{selectize=FALSE}.
+#'
 #' @param inputId Input variable to assign the control's value to
-#' @param label Display label for the control
+#' @param label Display label for the control, or \code{NULL}
 #' @param choices List of values to select from. If elements of the list are
 #' named then that name rather than the value is displayed to the user.
 #' @param selected The initially selected value (or multiple values if
@@ -699,7 +701,7 @@ choicesWithNames <- function(choices) {
 #'               "Gears" = "gear"))
 #' @export
 selectInput <- function(inputId, label, choices, selected = NULL,
-                        multiple = FALSE, selectize = TRUE) {
+                        multiple = FALSE, selectize = TRUE, width = NULL) {
   # resolve names
   choices <- choicesWithNames(choices)
 
@@ -708,30 +710,25 @@ selectInput <- function(inputId, label, choices, selected = NULL,
     if (!multiple) selected <- choices[[1]]
   } else selected <- validateSelected(selected, choices, inputId)
 
+  # Create tags for each of the options
+  options <- HTML(paste("<option value=\"",
+    htmlEscape(choices),
+    "\"",
+    ifelse(choices %in% selected, " selected", ""),
+    ">",
+    htmlEscape(names(choices)),
+    "</option>",
+    sep = "", collapse = "\n"));
+
   # create select tag and add options
-  selectTag <- tags$select(id = inputId)
+  selectTag <- tags$select(id = inputId, options)
   if (multiple)
     selectTag$attribs$multiple <- "multiple"
-
-  # Create tags for each of the options
-  optionTags <- mapply(choices, names(choices),
-    SIMPLIFY = FALSE, USE.NAMES = FALSE,
-    FUN = function(choice, name) {
-      optionTag <- tags$option(value = choice, name)
-
-      if (choice %in% selected)
-        optionTag$attribs$selected = "selected"
-
-      optionTag
-    }
-  )
-
-  selectTag <- tagSetChildren(selectTag, list = optionTags)
 
   # return label and select tag
   res <- tagList(controlLabel(inputId, label), selectTag)
   if (!selectize) return(res)
-  selectizeIt(inputId, res, NULL, nonempty = !multiple && !("" %in% choices))
+  selectizeIt(inputId, res, NULL, width, nonempty = !multiple && !("" %in% choices))
 }
 
 #' @rdname selectInput
@@ -740,6 +737,8 @@ selectInput <- function(inputId, label, choices, selected = NULL,
 #'   for possible options (character option values inside \code{\link{I}()} will
 #'   be treated as literal JavaScript code; see \code{\link{renderDataTable}()}
 #'   for details).
+#' @param width The width of the input, e.g. \code{'400px'}, or \code{'100\%'};
+#'   see \code{\link{validateCssUnit}}.
 #' @note The selectize input created from \code{selectizeInput()} allows
 #'   deletion of the selected option even in a single select input, which will
 #'   return an empty string as its value. This is the default behavior of
@@ -749,30 +748,36 @@ selectInput <- function(inputId, label, choices, selected = NULL,
 #'   \code{choices} argument. This is to keep compatibility with
 #'   \code{selectInput(..., selectize = FALSE)}.
 #' @export
-selectizeInput <- function(inputId, ..., options = NULL) {
-  selectizeIt(inputId, selectInput(inputId, ..., selectize = FALSE), options)
+selectizeInput <- function(inputId, ..., options = NULL, width = NULL) {
+  selectizeIt(inputId, selectInput(inputId, ..., selectize = FALSE), options, width)
 }
 
 # given a select input and its id, selectize it
-selectizeIt <- function(inputId, select, options, nonempty = FALSE) {
+selectizeIt <- function(inputId, select, options, width = NULL, nonempty = FALSE) {
   res <- checkAsIs(options)
 
-  tagList(
-    select,
-    singleton(tags$head(
-      tags$link(rel = 'stylesheet', type = 'text/css',
-                href = 'shared/selectize/css/selectize.bootstrap2.css'),
+  selectizeDep <- htmlDependency(
+    "selectize", "0.8.5", c(href = "shared/selectize"),
+    stylesheet = "css/selectize.bootstrap2.css",
+    head = format(tagList(
       HTML('<!--[if lt IE 9]>'),
       tags$script(src = 'shared/selectize/js/es5-shim.min.js'),
       HTML('<![endif]-->'),
       tags$script(src = 'shared/selectize/js/selectize.min.js')
-    )),
-    tags$script(
-      type = 'application/json',
-      `data-for` = inputId, `data-nonempty` = if (nonempty) '',
-      `data-eval` = if (length(res$eval)) HTML(toJSON(res$eval)),
-      if (length(res$options)) HTML(toJSON(res$options)) else '{}'
-    )
+    ))
+  )
+  attachDependencies(
+    tagList(
+      select,
+      tags$script(
+        type = 'application/json',
+        `data-for` = inputId, `data-nonempty` = if (nonempty) '',
+        `data-eval` = if (length(res$eval)) HTML(toJSON(res$eval)),
+        `data-width` = validateCssUnit(width),
+        if (length(res$options)) HTML(toJSON(res$options)) else '{}'
+      )
+    ),
+    selectizeDep
   )
 }
 
@@ -781,11 +786,12 @@ selectizeIt <- function(inputId, select, options, nonempty = FALSE) {
 #' Create a set of radio buttons used to select an item from a list.
 #'
 #' @param inputId Input variable to assign the control's value to
-#' @param label Display label for the control
+#' @param label Display label for the control, or \code{NULL}
 #' @param choices List of values to select from (if elements of the list are
 #' named then that name rather than the value is displayed to the user)
 #' @param selected The initially selected value (if not specified then
 #' defaults to the first value)
+#' @param inline If \code{TRUE}, render the choices inline (i.e. horizontally)
 #' @return A set of radio buttons that can be added to a UI definition.
 #'
 #' @family input elements
@@ -798,7 +804,7 @@ selectizeIt <- function(inputId, select, options, nonempty = FALSE) {
 #'                "Log-normal" = "lnorm",
 #'                "Exponential" = "exp"))
 #' @export
-radioButtons <- function(inputId, label, choices, selected = NULL) {
+radioButtons <- function(inputId, label, choices, selected = NULL, inline = FALSE) {
   # resolve names
   choices <- choicesWithNames(choices)
 
@@ -822,7 +828,7 @@ radioButtons <- function(inputId, label, choices, selected = NULL) {
         inputTag$attribs$checked = "checked"
 
       # Put the label text in a span
-      tags$label(class = "radio",
+      tags$label(class = if (inline) "radio inline" else "radio",
                 inputTag,
                 tags$span(name)
       )
@@ -830,9 +836,9 @@ radioButtons <- function(inputId, label, choices, selected = NULL) {
   )
 
   tags$div(id = inputId,
-           class = 'control-group shiny-input-radiogroup',
-           tags$label(class = "control-label", `for` = inputId, label),
-           inputTags)
+    class = 'control-group shiny-input-radiogroup',
+    label %AND% tags$label(class = "control-label", `for` = inputId, label),
+    inputTags)
 }
 
 #' Create a submit button
@@ -852,27 +858,22 @@ radioButtons <- function(inputId, label, choices, selected = NULL) {
 #' submitButton("Update View", icon("refresh"))
 #' @export
 submitButton <- function(text = "Apply Changes", icon = NULL) {
-
-  if (!is.null(icon))
-    buttonContent <- list(icon, text)
-  else
-    buttonContent <- text
-
   div(
-    tags$button(type="submit", class="btn btn-primary", buttonContent)
+    tags$button(type="submit", class="btn btn-primary", list(icon, text))
   )
 }
 
-#' Action button
+#' Action button/link
 #'
-#' Creates an action button whose value is initially zero, and increments by one
+#' Creates an action button or link whose value is initially zero, and increments by one
 #' each time it is pressed.
 #'
 #' @param inputId Specifies the input slot that will be used to access the
 #'   value.
-#' @param label The contents of the button--usually a text label, but you could
-#'   also use any other HTML, like an image.
-#' @param icon Optional \code{\link{icon}} to appear on the button
+#' @param label The contents of the button or link--usually a text label, but
+#'   you could also use any other HTML, like an image.
+#' @param icon An optional \code{\link{icon}} to appear on the button.
+#' @param ... Named attributes to be applied to the button or link.
 #'
 #' @family input elements
 #' @examples
@@ -891,17 +892,20 @@ submitButton <- function(text = "Apply Changes", icon = NULL) {
 #' actionButton("goButton", "Go!")
 #' }
 #' @export
-actionButton <- function(inputId, label, icon = NULL) {
-
-  if (!is.null(icon))
-    buttonContent <- list(icon, label)
-  else
-    buttonContent <- label
-
+actionButton <- function(inputId, label, icon = NULL, ...) {
   tags$button(id=inputId,
               type="button",
               class="btn action-button",
-              buttonContent)
+              list(icon, label))
+}
+
+#' @rdname actionButton
+#' @export
+actionLink <- function(inputId, label, icon = NULL, ...) {
+  tags$a(id=inputId,
+         href="#",
+         class="action-button",
+         list(icon, label))
 }
 
 #' Slider Input Widget
@@ -910,7 +914,8 @@ actionButton <- function(inputId, label, icon = NULL) {
 #'
 #' @param inputId Specifies the \code{input} slot that will be used to access
 #'   the value.
-#' @param label A descriptive label to be displayed with the widget.
+#' @param label A descriptive label to be displayed with the widget, or
+#'   \code{NULL}.
 #' @param min The minimum value (inclusive) that can be selected.
 #' @param max The maximum value (inclusive) that can be selected.
 #' @param value The initial value of the slider. A numeric vector of length
@@ -933,7 +938,7 @@ actionButton <- function(inputId, label, icon = NULL) {
 #' @param animate \code{TRUE} to show simple animation controls with default
 #'   settings; \code{FALSE} not to; or a custom settings list, such as those
 #'   created using \code{animationOptions}.
-#'
+#' @inheritParams selectizeInput
 #' @family input elements
 #' @seealso \code{\link{updateSliderInput}}
 #'
@@ -952,7 +957,7 @@ actionButton <- function(inputId, label, icon = NULL) {
 #' @export
 sliderInput <- function(inputId, label, min, max, value, step = NULL,
                         round=FALSE, format='#,##0.#####', locale='us',
-                        ticks=TRUE, animate=FALSE) {
+                        ticks=TRUE, animate=FALSE, width=NULL) {
 
   if (identical(animate, TRUE))
     animate <- animationOptions()
@@ -965,16 +970,24 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
   }
 
   # build slider
-  tags$div(
-    tagList(
+  sliderTag <- slider(inputId, min=min, max=max, value=value, step=step,
+    round=round, locale=locale, format=format, ticks=ticks, animate=animate,
+    width=width)
+
+  if (is.null(label)) {
+    sliderTag
+  } else {
+    tags$div(
       controlLabel(inputId, label),
-      slider(inputId, min=min, max=max, value=value, step=step, round=round,
-             locale=locale, format=format, ticks=ticks,
-             animate=animate)
+      sliderTag
     )
-  )
+  }
 }
 
+datePickerDependency <- htmlDependency(
+  "bootstrap-datepicker", "1.0.2", c(href = "shared/datepicker"),
+  script = "js/bootstrap-datepicker.min.js",
+  stylesheet = "css/datepicker.css")
 
 #' Create date input
 #'
@@ -998,7 +1011,7 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
 #' }
 #'
 #' @param inputId Input variable to assign the control's value to.
-#' @param label Display label for the control.
+#' @param label Display label for the control, or \code{NULL}.
 #' @param value The starting date. Either a Date object, or a string in
 #'   \code{yyyy-mm-dd} format. If NULL (the default), will use the current
 #'   date in the client's time zone.
@@ -1052,12 +1065,7 @@ dateInput <- function(inputId, label, value = NULL, min = NULL, max = NULL,
   if (inherits(min,   "Date"))  min   <- format(min,   "%Y-%m-%d")
   if (inherits(max,   "Date"))  max   <- format(max,   "%Y-%m-%d")
 
-  tagList(
-    singleton(tags$head(
-      tags$script(src = "shared/datepicker/js/bootstrap-datepicker.min.js"),
-      tags$link(rel = "stylesheet", type = "text/css",
-                href = 'shared/datepicker/css/datepicker.css')
-    )),
+  attachDependencies(
     tags$div(id = inputId,
              class = "shiny-date-input",
 
@@ -1073,7 +1081,8 @@ dateInput <- function(inputId, label, value = NULL, min = NULL, max = NULL,
                  `data-max-date` = max,
                  `data-initial-date` = value
       )
-    )
+    ),
+    datePickerDependency
   )
 }
 
@@ -1155,12 +1164,7 @@ dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
   if (inherits(min,   "Date"))  min   <- format(min,   "%Y-%m-%d")
   if (inherits(max,   "Date"))  max   <- format(max,   "%Y-%m-%d")
 
-  tagList(
-    singleton(tags$head(
-      tags$script(src = "shared/datepicker/js/bootstrap-datepicker.min.js"),
-      tags$link(rel = "stylesheet", type = "text/css",
-                href = 'shared/datepicker/css/datepicker.css')
-    )),
+  attachDependencies(
     tags$div(id = inputId,
              # input-daterange class is needed for dropdown behavior
              class = "shiny-date-range-input input-daterange",
@@ -1187,7 +1191,8 @@ dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
                  `data-max-date` = max,
                  `data-initial-date` = end
                  )
-    )
+    ),
+    datePickerDependency
   )
 }
 
@@ -1282,9 +1287,7 @@ tabsetPanel <- function(...,
   }
 
   # create the tab div
-  tabDiv <- tags$div(class = paste("tabbable tabs-", position, sep=""),
-                     first,
-                     second)
+  tags$div(class = paste("tabbable tabs-", position, sep=""), first, second)
 }
 
 #' Create a navigation list panel
@@ -1377,7 +1380,7 @@ buildTabset <- function(tabs,
   tabNavList <- tags$ul(class = ulClass, id = id)
   tabContent <- tags$div(class = "tab-content")
   firstTab <- TRUE
-  tabsetId <- as.integer(stats::runif(1, 1, 10000))
+  tabsetId <- p_randomInt(1000, 10000)
   tabId <- 1
   for (divTag in tabs) {
 
@@ -1606,17 +1609,24 @@ tableOutput <- function(outputId) {
   div(id = outputId, class="shiny-html-output")
 }
 
+dataTableDependency <- list(
+  htmlDependency(
+    "datatables", "1.9.4", c(href = "shared/datatables"),
+    script = "js/jquery.dataTables.min.js"
+  ),
+  htmlDependency(
+    "datatables-bootstrap", "1.9.4", c(href = "shared/datatables"),
+    stylesheet = "css/DT_bootstrap.css",
+    script = "js/DT_bootstrap.js"
+  )
+)
+
 #' @rdname tableOutput
 #' @export
 dataTableOutput <- function(outputId) {
-  tagList(
-    singleton(tags$head(
-      tags$link(rel = "stylesheet", type = "text/css",
-                href = "shared/datatables/css/DT_bootstrap.css"),
-      tags$script(src = "shared/datatables/js/jquery.dataTables.min.js"),
-      tags$script(src = "shared/datatables/js/DT_bootstrap.js")
-    )),
-    div(id = outputId, class="shiny-datatable-output")
+  attachDependencies(
+    div(id = outputId, class="shiny-datatable-output"),
+    dataTableDependency
   )
 }
 
@@ -1756,47 +1766,5 @@ icon <- function(name, class = NULL, lib = "font-awesome") {
 
 # Helper funtion to extract the class from an icon
 iconClass <- function(icon) {
-  if (is.null(icon))
-    NULL
-  else
-    icon[[2]]$attribs$class
-}
-
-#' Validate proper CSS formatting of a unit
-#'
-#' Checks that the argument is valid for use as a CSS unit of length.
-#'
-#' \code{NULL} and \code{NA} are returned unchanged.
-#'
-#' Single element numeric vectors are returned as a character vector with the
-#' number plus a suffix of \code{"px"}.
-#'
-#' Single element character vectors must be \code{"auto"} or \code{"inherit"},
-#' or a number followed by a valid suffix: \code{px}, \code{\%}, \code{em},
-#' \code{pt}, \code{in}, \code{cm}, \code{mm}, \code{ex}, or \code{pc}.
-#'
-#' Any other value will cause an error to be thrown.
-#'
-#' @param x The unit to validate. Will be treated as a number of pixels if a
-#'   unit is not specified.
-#' @return A properly formatted CSS unit of length, if possible. Otherwise, will
-#'   throw an error.
-#' @examples
-#' validateCssUnit("10%")
-#' validateCssUnit(400)  #treated as '400px'
-#' @export
-validateCssUnit <- function(x) {
-  if (is.null(x) || is.na(x))
-    return(x)
-
-  if (length(x) > 1 || (!is.character(x) && !is.numeric(x)))
-    stop('CSS units must be a numeric or character vector with a single element')
-
-  if (is.character(x) &&
-     !grepl("^(auto|inherit|((\\.\\d+)|(\\d+(\\.\\d+)?))(%|in|cm|mm|em|ex|pt|pc|px))$", x)) {
-    stop('"', x, '" is not a valid CSS unit (e.g., "100%", "400px", "auto")')
-  } else if (is.numeric(x)) {
-    x <- paste(x, "px", sep = "")
-  }
-  x
+  if (!is.null(icon)) icon[[2]]$attribs$class
 }

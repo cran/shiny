@@ -1,3 +1,69 @@
+shiny 0.10.0
+--------------------------------------------------------------------------------
+
+* BREAKING CHANGE: By default, observers now terminate themselves if they were
+  created during a session and that session ends. See ?domains for more details.
+
+* Shiny can now be used in R Markdown v2 documents, to create "Shiny Docs":
+  reports and presentations that combine narrative, statically computed output,
+  and fully dynamic inputs and outputs. For more info, including examples, see
+  http://rmarkdown.rstudio.com/authoring_shiny.html.
+
+* The `session` object that can be passed into a server function (e.g.
+  shinyServer(function(input, output, session) {...})) is now documented: see
+  `?session`.
+
+* Most inputs can now accept `NULL` label values to omit the label altogether.
+
+* New `actionLink` input control; like `actionButton`, but with the appearance
+  of a normal link.
+
+* `renderPlot` now calls `print` on its result if it's visible (i.e. no more
+  explicit `print()` required for ggplot2).
+
+* Introduced Shiny app objects (see `?shinyApp`). These essentially replace the
+  little-advertised ability for `runApp` to take a `list(ui=..., server=...)`
+  as the first argument instead of a directory (though that ability remains for
+  backward compatibility). Unlike those lists, Shiny app objects are tagged with
+  class `shiny.appobj` so they can be run simply by printing them.
+
+* Added `maskReactiveContext` function. It blocks the current reactive context,
+  to evaluate expressions that shouldn't use reactive sources directly. (This
+  should not be commonly needed.)
+
+* Added `flowLayout`, `splitLayout`, and `inputPanel` functions for putting UI
+  elements side by side. `flowLayout` lays out its children in a left-to-right,
+  top-to-bottom arrangement. `splitLayout` evenly divides its horizontal space
+  among its children (or unevenly divides if `cellWidths` argument is provided).
+  `inputPanel` is like `flowPanel`, but with a light grey background, and is
+  intended to be used to encapsulate small input controls wherever vertical
+  space is at a premium.
+
+* Added `serverInfo` to obtain info about the Shiny Server if the app is served
+  through it.
+
+* Added an `inline` argument (TRUE/FALSE) in `checkboxGroupInput()` and
+  `radioButtons()` to allow the horizontal layout (inline = TRUE) of checkboxes
+  or radio buttons. (Thanks, @saurfang, #481)
+
+* `sliderInput` and `selectizeInput`/`selectInput` now use a standard horizontal
+  size instead of filling up all available horizontal space. Pass `width="100%"`
+  explicitly for the old behavior.
+
+* Added the `updateSelectizeInput()` function to make it possible to process
+  searching on the server side (i.e. using R), which can be much faster than the
+  client side processing (i.e. using HTML and JavaScript). See the article at
+  http://shiny.rstudio.com/articles/selectize.html for a detailed introduction.
+
+* Fixed a bug of renderDataTable() when the data object only has 1 row and 1
+  column. (Thanks, ZJ Dai, #429)
+
+* `renderPrint` gained a new argument 'width' to control the width of the text
+  output, e.g. renderPrint({mtcars}, width = 40).
+
+* Fixed #220: the zip file for a directory created by some programs may not have
+  the directory name as its first entry, in which case runUrl() can fail. (#220)
+
 shiny 0.9.1
 --------------------------------------------------------------------------------
 

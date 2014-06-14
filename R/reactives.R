@@ -1,3 +1,6 @@
+#' @include utils.R
+NULL
+
 Dependents <- setRefClass(
   'Dependents',
   fields = list(
@@ -49,7 +52,8 @@ ReactiveValues <- setRefClass(
   ),
   methods = list(
     initialize = function() {
-      .label <<- paste('reactiveValues', runif(1, min=1000, max=9999),
+      .label <<- paste('reactiveValues',
+                       p_randomInt(1000, 10000),
                        sep="")
       .values <<- new.env(parent=emptyenv())
       .dependents <<- new.env(parent=emptyenv())
@@ -208,15 +212,15 @@ setOldClass("reactivevalues")
 #' @export
 is.reactivevalues <- function(x) inherits(x, 'reactivevalues')
 
-#' @S3method $ reactivevalues
+#' @export
 `$.reactivevalues` <- function(x, name) {
   .subset2(x, 'impl')$get(name)
 }
 
-#' @S3method [[ reactivevalues
+#' @export
 `[[.reactivevalues` <- `$.reactivevalues`
 
-#' @S3method $<- reactivevalues
+#' @export
 `$<-.reactivevalues` <- function(x, name, value) {
   if (attr(x, 'readonly')) {
     stop("Attempted to assign value to a read-only reactivevalues object")
@@ -228,30 +232,30 @@ is.reactivevalues <- function(x) inherits(x, 'reactivevalues')
   }
 }
 
-#' @S3method [[<- reactivevalues
+#' @export
 `[[<-.reactivevalues` <- `$<-.reactivevalues`
 
-#' @S3method [ reactivevalues
+#' @export
 `[.reactivevalues` <- function(values, name) {
   stop("Single-bracket indexing of reactivevalues object is not allowed.")
 }
 
-#' @S3method [<- reactivevalues
+#' @export
 `[<-.reactivevalues` <- function(values, name, value) {
   stop("Single-bracket indexing of reactivevalues object is not allowed.")
 }
 
-#' @S3method names reactivevalues
+#' @export
 names.reactivevalues <- function(x) {
   .subset2(x, 'impl')$names()
 }
 
-#' @S3method names<- reactivevalues
+#' @export
 `names<-.reactivevalues` <- function(x, value) {
   stop("Can't assign names to reactivevalues object")
 }
 
-#' @S3method as.list reactivevalues
+#' @export
 as.list.reactivevalues <- function(x, all.names=FALSE, ...) {
   shinyDeprecated("reactiveValuesToList",
     msg = paste("'as.list.reactivevalues' is deprecated. ",
@@ -293,6 +297,17 @@ reactiveValuesToList <- function(x, all.names=FALSE) {
   .subset2(x, 'impl')$toList(all.names)
 }
 
+# This function is needed because str() on a reactivevalues object will call
+# [[.reactivevalues(), which will give an error when it tries to access
+# x[['impl']].
+#' @export
+str.reactivevalues <- function(object, indent.str = " ", ...) {
+  str(unclass(object), indent.str = indent.str, ...)
+  # Need to manually print out the class field,
+  cat(indent.str, '- attr(*, "class")=', sep = "")
+  str(class(object))
+}
+
 # Observable ----------------------------------------------------------------
 
 Observable <- setRefClass(
@@ -300,6 +315,7 @@ Observable <- setRefClass(
   fields = list(
     .func = 'function',
     .label = 'character',
+    .domain = 'ANY',
     .dependents = 'Dependents',
     .invalidated = 'logical',
     .running = 'logical',
@@ -309,7 +325,8 @@ Observable <- setRefClass(
     .mostRecentCtxId = 'character'
   ),
   methods = list(
-    initialize = function(func, label=deparse(substitute(func))) {
+    initialize = function(func, label = deparse(substitute(func)),
+                          domain = getDefaultReactiveDomain()) {
       if (length(formals(func)) > 0)
         stop("Can't make a reactive expression from a function that takes one ",
              "or more parameters; only functions without parameters can be ",
@@ -318,6 +335,7 @@ Observable <- setRefClass(
       .invalidated <<- TRUE
       .running <<- FALSE
       .label <<- label
+      .domain <<- domain
       .execCount <<- 0L
       .mostRecentCtxId <<- ""
     },
@@ -339,7 +357,8 @@ Observable <- setRefClass(
         invisible(.value)
     },
     .updateValue = function() {
-      ctx <- Context$new(.label, type='observable', prevId=.mostRecentCtxId)
+      ctx <- Context$new(.domain, .label, type = 'observable',
+                         prevId = .mostRecentCtxId)
       .mostRecentCtxId <<- ctx$id
       ctx$onInvalidate(function() {
         .invalidated <<- TRUE
@@ -354,7 +373,7 @@ Observable <- setRefClass(
       on.exit(.running <<- wasRunning)
 
       ctx$run(function() {
-        result <- withVisible(try(shinyCallingHandlers(.func()), silent=FALSE))
+        result <- withVisible(try(shinyCallingHandlers(.func()), silent=TRUE))
         .visible <<- result$visible
         .value <<- result$value
       })
@@ -387,6 +406,7 @@ Observable <- setRefClass(
 #'   This is useful when you want to use an expression that is stored in a
 #'   variable; to do so, it must be quoted with `quote()`.
 #' @param label A label for the reactive expression, useful for debugging.
+#' @param domain See \link{domains}.
 #' @return a function, wrapped in a S3 class "reactive"
 #'
 #' @examples
@@ -409,7 +429,8 @@ Observable <- setRefClass(
 #' isolate(reactiveD())
 #'
 #' @export
-reactive <- function(x, env = parent.frame(), quoted = FALSE, label = NULL) {
+reactive <- function(x, env = parent.frame(), quoted = FALSE, label = NULL,
+                     domain = getDefaultReactiveDomain()) {
   fun <- exprToFunction(x, env, quoted)
   # Attach a label and a reference to the original user source for debugging
   if (is.null(label))
@@ -417,12 +438,12 @@ reactive <- function(x, env = parent.frame(), quoted = FALSE, label = NULL) {
   srcref <- attr(substitute(x), "srcref")
   if (length(srcref) >= 2) attr(label, "srcref") <- srcref[[2]]
   attr(label, "srcfile") <- srcFileOfRef(srcref[[1]])
-  o <- Observable$new(fun, label)
+  o <- Observable$new(fun, label, domain)
   registerDebugHook(".func", o, "Reactive")
   structure(o$getValue@.Data, observable = o, class = "reactive")
 }
 
-#' @S3method print reactive
+#' @export
 print.reactive <- function(x, ...) {
   label <- attr(x, "observable")$.label
   cat(label, "\n")
@@ -436,7 +457,7 @@ is.reactive <- function(x) inherits(x, "reactive")
 execCount <- function(x) {
   if (is.function(x))
     return(environment(x)$.execCount)
-  else if (is(x, 'Observer'))
+  else if (inherits(x, 'Observer'))
     return(x$.execCount)
   else
     stop('Unexpected argument to execCount')
@@ -449,32 +470,42 @@ Observer <- setRefClass(
   fields = list(
     .func = 'function',
     .label = 'character',
+    .domain = 'ANY',
     .priority = 'numeric',
+    .autoDestroy = 'logical',
     .invalidateCallbacks = 'list',
     .execCount = 'integer',
     .onResume = 'function',
     .suspended = 'logical',
+    .destroyed = 'logical',
     .prevId = 'character'
   ),
   methods = list(
-    initialize = function(func, label, suspended = FALSE, priority = 0) {
+    initialize = function(func, label, suspended = FALSE, priority = 0,
+                          domain = getDefaultReactiveDomain(),
+                          autoDestroy = TRUE) {
       if (length(formals(func)) > 0)
         stop("Can't make an observer from a function that takes parameters; ",
              "only functions without parameters can be reactive.")
 
       .func <<- func
       .label <<- label
+      .domain <<- domain
+      .autoDestroy <<- autoDestroy
       .priority <<- normalizePriority(priority)
       .execCount <<- 0L
       .suspended <<- suspended
       .onResume <<- function() NULL
+      .destroyed <<- FALSE
       .prevId <<- ''
+
+      onReactiveDomainEnded(.domain, .self$.onDomainEnded)
 
       # Defer the first running of this until flushReact is called
       .createContext()$invalidate()
     },
     .createContext = function() {
-      ctx <- Context$new(.label, type='observer', prevId=.prevId)
+      ctx <- Context$new(.domain, .label, type='observer', prevId=.prevId)
       .prevId <<- ctx$id
 
       ctx$onInvalidate(function() {
@@ -494,7 +525,8 @@ Observer <- setRefClass(
       })
 
       ctx$onFlush(function() {
-        run()
+        if (!.destroyed)
+          run()
       })
 
       return(ctx)
@@ -517,6 +549,17 @@ Observer <- setRefClass(
       which case the priority change will be effective upon resume."
       .priority <<- normalizePriority(priority)
     },
+    setAutoDestroy = function(autoDestroy) {
+      "Sets whether this observer should be automatically destroyed when its
+      domain (if any) ends. If autoDestroy is TRUE and the domain already
+      ended, then destroy() is called immediately."
+      oldValue <- .autoDestroy
+      .autoDestroy <<- autoDestroy
+      if (!is.null(.domain) && .domain$isEnded()) {
+        destroy()
+      }
+      invisible(oldValue)
+    },
     suspend = function() {
       "Causes this observer to stop scheduling flushes (re-executions) in
       response to invalidations. If the observer was invalidated prior to this
@@ -535,6 +578,18 @@ Observer <- setRefClass(
         .onResume <<- function() NULL
       }
       invisible()
+    },
+    destroy = function() {
+      "Prevents this observer from ever executing again (even if a flush has
+      already been scheduled)."
+
+      suspend()
+      .destroyed <<- TRUE
+    },
+    .onDomainEnded = function() {
+      if (isTRUE(.autoDestroy)) {
+        destroy()
+      }
     }
   )
 )
@@ -543,23 +598,28 @@ Observer <- setRefClass(
 #'
 #' Creates an observer from the given expression.
 #'
-#' An observer is like a reactive
-#' expression in that it can read reactive values and call reactive expressions, and
-#' will automatically re-execute when those dependencies change. But unlike
-#' reactive expressions, it doesn't yield a result and can't be used as an input
-#' to other reactive expressions. Thus, observers are only useful for their side
-#' effects (for example, performing I/O).
+#' An observer is like a reactive expression in that it can read reactive values
+#' and call reactive expressions, and will automatically re-execute when those
+#' dependencies change. But unlike reactive expressions, it doesn't yield a
+#' result and can't be used as an input to other reactive expressions. Thus,
+#' observers are only useful for their side effects (for example, performing
+#' I/O).
 #'
-#' Another contrast between reactive expressions and observers is their execution
-#' strategy. Reactive expressions use lazy evaluation; that is, when their
-#' dependencies change, they don't re-execute right away but rather wait until
-#' they are called by someone else. Indeed, if they are not called then they
-#' will never re-execute. In contrast, observers use eager evaluation; as soon
-#' as their dependencies change, they schedule themselves to re-execute.
+#' Another contrast between reactive expressions and observers is their
+#' execution strategy. Reactive expressions use lazy evaluation; that is, when
+#' their dependencies change, they don't re-execute right away but rather wait
+#' until they are called by someone else. Indeed, if they are not called then
+#' they will never re-execute. In contrast, observers use eager evaluation; as
+#' soon as their dependencies change, they schedule themselves to re-execute.
 #'
-#' @param x An expression (quoted or unquoted). Any return value will be ignored.
-#' @param env The parent environment for the reactive expression. By default, this
-#'   is the calling environment, the same as when defining an ordinary
+#' Starting with Shiny 0.10.0, observers are automatically destroyed by default
+#' when the \link[=domains]{domain} that owns them ends (e.g. when a Shiny session
+#' ends).
+#'
+#' @param x An expression (quoted or unquoted). Any return value will be
+#'   ignored.
+#' @param env The parent environment for the reactive expression. By default,
+#'   this is the calling environment, the same as when defining an ordinary
 #'   non-reactive expression.
 #' @param quoted Is the expression quoted? By default, this is \code{FALSE}.
 #'   This is useful when you want to use an expression that is stored in a
@@ -571,6 +631,9 @@ Observer <- setRefClass(
 #'   this observer should be executed. An observer with a given priority level
 #'   will always execute sooner than all observers with a lower priority level.
 #'   Positive, negative, and zero values are allowed.
+#' @param domain See \link{domains}.
+#' @param autoDestroy If \code{TRUE} (the default), the observer will be
+#'   automatically destroyed when its domain (if any) ends.
 #' @return An observer reference class object. This object has the following
 #'   methods:
 #'   \describe{
@@ -585,11 +648,20 @@ Observer <- setRefClass(
 #'       invalidations. If the observer was invalidated while suspended, then it
 #'       will schedule itself for re-execution.
 #'     }
+#'     \item{\code{destroy()}}{
+#'       Stops the observer from executing ever again, even if it is currently
+#'       scheduled for re-execution.
+#'     }
 #'     \item{\code{setPriority(priority = 0)}}{
 #'       Change this observer's priority. Note that if the observer is currently
 #'       invalidated, then the change in priority will not take effect until the
 #'       next invalidation--unless the observer is also currently suspended, in
 #'       which case the priority change will be effective upon resume.
+#'     }
+#'     \item{\code{setAutoDestroy(autoDestroy)}}{
+#'       Sets whether this observer should be automatically destroyed when its
+#'       domain (if any) ends. If autoDestroy is TRUE and the domain already
+#'       ended, then destroy() is called immediately."
 #'     }
 #'     \item{\code{onInvalidate(callback)}}{
 #'       Register a callback function to run when this observer is invalidated.
@@ -618,13 +690,15 @@ Observer <- setRefClass(
 #'
 #' @export
 observe <- function(x, env=parent.frame(), quoted=FALSE, label=NULL,
-                    suspended=FALSE, priority=0) {
+                    suspended=FALSE, priority=0,
+                    domain=getDefaultReactiveDomain(), autoDestroy = TRUE) {
 
   fun <- exprToFunction(x, env, quoted)
   if (is.null(label))
     label <- sprintf('observe(%s)', paste(deparse(body(fun)), collapse='\n'))
 
-  o <- Observer$new(fun, label=label, suspended=suspended, priority=priority)
+  o <- Observer$new(fun, label=label, suspended=suspended, priority=priority,
+                    domain=domain, autoDestroy=autoDestroy)
   registerDebugHook(".func", o, "Observer")
   invisible(o)
 }
@@ -1085,9 +1159,28 @@ reactiveFileReader <- function(intervalMillis, session, filePath, readFunc, ...)
 #'
 #' @export
 isolate <- function(expr) {
-  ctx <- Context$new('[isolate]', type='isolate')
+  ctx <- Context$new(getDefaultReactiveDomain(), '[isolate]', type='isolate')
   on.exit(ctx$invalidate())
   ctx$run(function() {
+    expr
+  })
+}
+
+#' Evaluate an expression without a reactive context
+#'
+#' Temporarily blocks the current reactive context and evaluates the given
+#' expression. Any attempt to directly access reactive values or expressions in
+#' \code{expr} will give the same results as doing it at the top-level (by
+#' default, an error).
+#'
+#' @param expr An expression to evaluate.
+#' @return The value of \code{expr}.
+#'
+#' @seealso \code{\link{isolate}}
+#'
+#' @export
+maskReactiveContext <- function(expr) {
+  .getReactiveEnvironment()$runWith(NULL, function() {
     expr
   })
 }

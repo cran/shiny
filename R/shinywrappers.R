@@ -1,5 +1,41 @@
 globalVariables('func')
 
+#' Mark a function as a render function
+#'
+#' Should be called by implementers of \code{renderXXX} functions in order to
+#' mark their return values as Shiny render functions, and to provide a hint to
+#' Shiny regarding what UI function is most commonly used with this type of
+#' render function. This can be used in R Markdown documents to create complete
+#' output widgets out of just the render function.
+#'
+#' @param uiFunc A function that renders Shiny UI. Must take a single argument:
+#'   an output ID.
+#' @param renderFunc A function that is suitable for assigning to a Shiny output
+#'   slot.
+#' @return The \code{renderFunc} function, with annotations.
+#'
+#' @export
+markRenderFunction <- function(uiFunc, renderFunc) {
+  class(renderFunc) <- c("shiny.render.function", "function")
+  attr(renderFunc, "outputFunc") <- uiFunc
+  renderFunc
+}
+
+useRenderFunction <- function(renderFunc) {
+  outputFunction <- attr(renderFunc, "outputFunc")
+  id <- createUniqueId(8, "out")
+  o <- getDefaultReactiveDomain()$output
+  if (!is.null(o))
+    o[[id]] <- renderFunc
+  return(outputFunction(id))
+}
+
+#' @export
+#' @method as.tags shiny.render.function
+as.tags.shiny.render.function <- function(x, ...) {
+  useRenderFunction(x)
+}
+
 #' Plot Output
 #'
 #' Renders a reactive plot that is suitable for assigning to an \code{output}
@@ -54,7 +90,16 @@ renderPlot <- function(expr, width='auto', height='auto', res=72, ...,
   else
     heightWrapper <- NULL
 
-  return(function(shinysession, name, ...) {
+  # If renderPlot isn't going to adapt to the height of the div, then the
+  # div needs to adapt to the height of renderPlot. By default, plotOutput
+  # sets the height to 400px, so to make it adapt we need to override it
+  # with NULL.
+  outputFunc <- if (identical(height, 'auto'))
+    plotOutput
+  else
+    function(outputId) plotOutput(outputId, height = NULL)
+
+  return(markRenderFunction(outputFunc, function(shinysession, name, ...) {
     if (!is.null(widthWrapper))
       width <- widthWrapper()
     if (!is.null(heightWrapper))
@@ -79,8 +124,9 @@ renderPlot <- function(expr, width='auto', height='auto', res=72, ...,
 
     coordmap <- NULL
     plotFunc <- function() {
-      # Actually perform the plotting
-      func()
+      # Actually perform the plotting: use capture.output() to suppress output
+      # to console, and print func() if it returns a visible value
+      capture.output(func())
 
       # Now capture some graphics device info before we close it
       usrCoords <- par('usr')
@@ -123,7 +169,7 @@ renderPlot <- function(expr, width='auto', height='auto', res=72, ...,
       src=shinysession$fileUrl(name, outfile, contentType='image/png'),
       width=width, height=height, coordmap=coordmap
     ))
-  })
+  }))
 }
 
 #' Image file output
@@ -218,7 +264,7 @@ renderImage <- function(expr, env=parent.frame(), quoted=FALSE,
                         deleteFile=TRUE) {
   installExprFunction(expr, "func", env, quoted)
 
-  return(function(shinysession, name, ...) {
+  return(markRenderFunction(imageOutput, function(shinysession, name, ...) {
     imageinfo <- func()
     # Should the file be deleted after being sent? If .deleteFile not set or if
     # TRUE, then delete; otherwise don't delete.
@@ -239,7 +285,7 @@ renderImage <- function(expr, env=parent.frame(), quoted=FALSE,
     # Return a list with src, and other img attributes
     c(src = shinysession$fileUrl(name, file=imageinfo$src, contentType=contentType),
       extra_attr)
-  })
+  }))
 }
 
 
@@ -269,7 +315,7 @@ renderTable <- function(expr, ..., env=parent.frame(), quoted=FALSE, func=NULL) 
     installExprFunction(expr, "func", env, quoted)
   }
 
-  function() {
+  markRenderFunction(tableOutput, function() {
     classNames <- getOption('shiny.table.class', 'data table table-bordered table-condensed')
     data <- func()
 
@@ -285,7 +331,7 @@ renderTable <- function(expr, ..., env=parent.frame(), quoted=FALSE, func=NULL) 
                                           '"',
                                           sep=''), ...)),
       collapse="\n"))
-  }
+  })
 }
 
 #' Printable Output
@@ -312,27 +358,26 @@ renderTable <- function(expr, ..., env=parent.frame(), quoted=FALSE, func=NULL) 
 #' @param quoted Is \code{expr} a quoted expression (with \code{quote()})? This
 #' @param func A function that may print output and/or return a printable R
 #'   object (deprecated; use \code{expr} instead).
-#'
+#' @param width The value for \code{\link{options}('width')}.
 #' @seealso \code{\link{renderText}} for displaying the value returned from a
 #'   function, instead of the printed output.
 #'
 #' @example res/text-example.R
 #'
 #' @export
-renderPrint <- function(expr, env=parent.frame(), quoted=FALSE, func=NULL) {
+renderPrint <- function(expr, env = parent.frame(), quoted = FALSE, func = NULL,
+                        width = getOption('width')) {
   if (!is.null(func)) {
     shinyDeprecated(msg="renderPrint: argument 'func' is deprecated. Please use 'expr' instead.")
   } else {
     installExprFunction(expr, "func", env, quoted)
   }
 
-  function() {
-    return(paste(capture.output({
-      result <- withVisible(func())
-      if (result$visible)
-        print(result$value)
-    }), collapse="\n"))
-  }
+  markRenderFunction(verbatimTextOutput, function() {
+    op <- options(width = width)
+    on.exit(options(op), add = TRUE)
+    paste(capture.output(func()), collapse = "\n")
+  })
 }
 
 #' Text Output
@@ -369,10 +414,10 @@ renderText <- function(expr, env=parent.frame(), quoted=FALSE, func=NULL) {
     installExprFunction(expr, "func", env, quoted)
   }
 
-  function() {
+  markRenderFunction(textOutput, function() {
     value <- func()
     return(paste(capture.output(cat(value)), collapse="\n"))
-  }
+  })
 }
 
 #' UI Output
@@ -409,19 +454,25 @@ renderUI <- function(expr, env=parent.frame(), quoted=FALSE, func=NULL) {
     installExprFunction(expr, "func", env, quoted)
   }
 
-  function(shinysession, name, ...) {
+  markRenderFunction(uiOutput, function(shinysession, name, ...) {
     result <- func()
     if (is.null(result) || length(result) == 0)
       return(NULL)
 
     result <- takeSingletons(result, shinysession$singletons, desingleton=FALSE)$ui
     result <- surroundSingletons(result)
+    dependencies <- lapply(resolveDependencies(findDependencies(result)),
+      createWebDependency)
+    names(dependencies) <- NULL
 
     # renderTags returns a list with head, singletons, and html
-    output <- doRenderTags(result)
+    output <- list(
+      html = doRenderTags(result),
+      deps = dependencies
+    )
 
     return(output)
-  }
+  })
 }
 
 #' File Downloads
@@ -466,9 +517,9 @@ renderUI <- function(expr, env=parent.frame(), quoted=FALSE, func=NULL) {
 #'
 #' @export
 downloadHandler <- function(filename, content, contentType=NA) {
-  return(function(shinysession, name, ...) {
+  return(markRenderFunction(downloadButton, function(shinysession, name, ...) {
     shinysession$registerDownload(name, filename, contentType, content)
-  })
+  }))
 }
 
 #' Table output with the JavaScript library DataTables
@@ -506,17 +557,17 @@ renderDataTable <- function(expr, options = NULL, searchDelay = 500,
                             env = parent.frame(), quoted = FALSE) {
   installExprFunction(expr, "func", env, quoted)
 
-  function(shinysession, name, ...) {
+  markRenderFunction(dataTableOutput, function(shinysession, name, ...) {
     res <- checkAsIs(if (is.function(options)) options() else options)
     data <- func()
     if (length(dim(data)) != 2) return() # expects a rectangular data object
-    action <- shinysession$registerDataTable(name, data)
+    action <- shinysession$registerDataObj(name, data, dataTablesJSON)
     list(
       colnames = colnames(data), action = action, options = res$options,
       evalOptions = if (length(res$eval)) I(res$eval), searchDelay = searchDelay,
       callback = paste(callback, collapse = '\n')
     )
-  }
+  })
 }
 
 
