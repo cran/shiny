@@ -69,7 +69,7 @@ shinyApp <- function(ui, server, onStart=NULL, options=list(), uiPattern="/") {
 
     renderPage(uiValue, textConn)
     html <- paste(textConnectionValue(textConn), collapse='\n')
-    return(httpResponse(200, content=html))
+    return(httpResponse(200, content=enc2utf8(html)))
   }
 
   serverFuncSource <- function() {
@@ -112,9 +112,7 @@ shinyAppDir <- function(appDir, options=list()) {
         # If not, then take the last expression that's returned from ui.R.
         .globals$ui <- NULL
         on.exit(.globals$ui <- NULL, add = FALSE)
-        ui <- source(uiR,
-          local = new.env(parent = globalenv()),
-          keep.source = TRUE)$value
+        ui <- sourceUTF8(uiR, local = new.env(parent = globalenv()))$value
         if (!is.null(.globals$ui)) {
           ui <- .globals$ui[[1]]
         }
@@ -137,11 +135,7 @@ shinyAppDir <- function(appDir, options=list()) {
       # server.R.
       .globals$server <- NULL
       on.exit(.globals$server <- NULL, add = TRUE)
-      result <- source(
-        serverR,
-        local = new.env(parent = globalenv()),
-        keep.source = TRUE
-      )$value
+      result <- sourceUTF8(serverR, local = new.env(parent = globalenv()))$value
       if (!is.null(.globals$server)) {
         result <- .globals$server[[1]]
       }
@@ -169,7 +163,7 @@ shinyAppDir <- function(appDir, options=list()) {
     oldwd <<- getwd()
     setwd(appDir)
     if (file.exists(file.path.ci(appDir, "global.R")))
-      source(file.path.ci(appDir, "global.R"), keep.source = TRUE)
+      sourceUTF8(file.path.ci(appDir, "global.R"))
   }
   onEnd <- function() {
     setwd(oldwd)
@@ -249,26 +243,33 @@ as.tags.shiny.appobj <- function(x, ...) {
 #' @param ... Additional knit_print arguments
 NULL
 
+# If there's an R Markdown runtime option set but it isn't set to Shiny, then
+# return a warning indicating the runtime is inappropriate for this object.
+# Returns NULL in all other cases.
+shiny_rmd_warning <- function() {
+  runtime <- knitr::opts_knit$get("rmarkdown.runtime")
+  if (!is.null(runtime) && runtime != "shiny")
+    # note that the RStudio IDE checks for this specific string to detect Shiny
+    # applications in static document
+    list(structure(
+      "Shiny application in a static R Markdown document",
+      class = "rmd_warning"))
+  else
+    NULL
+}
+
 #' @rdname knitr_methods
 #' @export
 knit_print.shiny.appobj <- function(x, ...) {
   opts <- x$options %OR% list()
   width <- if (is.null(opts$width)) "100%" else opts$width
   height <- if (is.null(opts$height)) "400" else opts$height
-  shiny_warning <- NULL
-  # if there's an R Markdown runtime option set but it isn't set to Shiny, then
-  # emit a warning indicating the runtime is inappropriate for this object
+
   runtime <- knitr::opts_knit$get("rmarkdown.runtime")
   if (!is.null(runtime) && runtime != "shiny") {
-    # note that the RStudio IDE checks for this specific string to detect Shiny
-    # applications in static document
-    shiny_warning <- list(structure(
-      "Shiny application in a static R Markdown document",
-      class = "rmd_warning"))
-
-    # create a box exactly the same dimensions as the Shiny app would have had
-    # (so the document continues to flow as it would have with the app), and
-    # display a diagnostic message
+    # If not rendering to a Shiny document, create a box exactly the same
+    # dimensions as the Shiny app would have had (so the document continues to
+    # flow as it would have with the app), and display a diagnostic message
     width <- validateCssUnit(width)
     height <- validateCssUnit(height)
     output <- tags$div(
@@ -289,15 +290,19 @@ knit_print.shiny.appobj <- function(x, ...) {
   # for now it's not an issue, so just return the HTML and warning.
 
   knitr::asis_output(htmlPreserve(format(output, indent=FALSE)),
-                     meta = shiny_warning, cacheable = FALSE)
+                     meta = shiny_rmd_warning(), cacheable = FALSE)
 }
 
-# Lets us use a nicer syntax in knitr chunks than literally
+# Let us use a nicer syntax in knitr chunks than literally
 # calling output$value <- renderFoo(...) and fooOutput().
 #' @rdname knitr_methods
+#' @param inline Whether the object is printed inline.
 #' @export
-knit_print.shiny.render.function <- function(x, ...) {
+knit_print.shiny.render.function <- function(x, ..., inline = FALSE) {
+  x <- htmltools::as.tags(x, inline = inline)
   output <- knitr::knit_print(tagList(x))
   attr(output, "knit_cacheable") <- FALSE
+  attr(output, "knit_meta") <- append(attr(output, "knit_meta"),
+                                      shiny_rmd_warning())
   output
 }

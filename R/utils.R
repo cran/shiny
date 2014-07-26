@@ -185,7 +185,7 @@ resolve <- function(dir, relpath) {
   abs.path <- normalizePath(abs.path, winslash='/', mustWork=TRUE)
   dir <- normalizePath(dir, winslash='/', mustWork=TRUE)
   # trim the possible trailing slash under Windows (#306)
-  if (.Platform$OS.type == 'windows') dir <- sub('/$', '', dir)
+  if (isWindows()) dir <- sub('/$', '', dir)
   if (nchar(abs.path) <= nchar(dir) + 1)
     return(NULL)
   if (substr(abs.path, 1, nchar(dir)) != dir ||
@@ -195,6 +195,8 @@ resolve <- function(dir, relpath) {
   return(abs.path)
 }
 
+isWindows <- function() .Platform$OS.type == 'windows'
+
 # This is a wrapper for download.file and has the same interface.
 # The only difference is that, if the protocol is https, it changes the
 # download settings, depending on platform.
@@ -203,7 +205,7 @@ download <- function(url, ...) {
   if (grepl('^https?://', url)) {
 
     # If Windows, call setInternet2, then use download.file with defaults.
-    if (.Platform$OS.type == "windows") {
+    if (isWindows()) {
       # If we directly use setInternet2, R CMD CHECK gives a Note on Mac/Linux
       mySI2 <- `::`(utils, 'setInternet2')
       # Store initial settings
@@ -487,7 +489,7 @@ shinyCallingHandlers <- function(expr) {
 shinyDeprecated <- function(new=NULL, msg=NULL,
                             old=as.character(sys.call(sys.parent()))[1L]) {
 
-  if (getOption("shiny.deprecation.messages", default=TRUE) == FALSE)
+  if (getOption("shiny.deprecation.messages") %OR% TRUE == FALSE)
     return(invisible())
 
   if (is.null(msg)) {
@@ -736,18 +738,6 @@ cachedFuncWithFile <- function(dir, file, func, case.sensitive = FALSE) {
   }
 }
 
-# Returns a function that sources the file and caches the result for subsequent
-# calls, unless the file's mtime changes.
-cachedSource <- function(dir, file, case.sensitive = FALSE) {
-  dir <- normalizePath(dir, mustWork=TRUE)
-  cachedFuncWithFile(dir, file, function(fname, ...) {
-    if (file.exists(fname))
-      return(source(fname, ...))
-    else
-      return(NULL)
-  })
-}
-
 # turn column-based data to row-based data (mainly for JSON), e.g. data.frame(x
 # = 1:10, y = 10:1) ==> list(list(x = 1, y = 10), list(x = 2, y = 9), ...)
 columnToRowData <- function(data) {
@@ -927,4 +917,65 @@ setServerInfo <- function(...) {
   infoNew <- list(...)
   infoOld[names(infoNew)] <- infoNew
   .globals$serverInfo <- infoOld
+}
+
+# see if the file can be read as UTF-8 on Windows, and converted from UTF-8 to
+# native encoding; if the conversion fails, it will produce NA's in the results
+checkEncoding <- function(file) {
+  # skip *nix because its locale is normally UTF-8 based (e.g. en_US.UTF-8), and
+  # *nix users have to make a conscious effort to save a file with an encoding
+  # that is not UTF-8; if they choose to do so, we cannot do much about it
+  # except sitting back and seeing them punished after they choose to escape a
+  # world of consistency (falling back to getOption('encoding') will not help
+  # because native.enc is also normally UTF-8 based on *nix)
+  if (!isWindows()) return('UTF-8')
+  # an empty file?
+  size <- file.info(file)[, 'size']
+  if (size == 0) return('UTF-8')
+
+  x <- readLines(file, encoding = 'UTF-8', warn = FALSE)
+  # if conversion is successful and there are no embedded nul's, use UTF-8
+  if (!any(is.na(iconv(x, 'UTF-8'))) &&
+        !any(readBin(file, 'raw', size) == as.raw(0))) return('UTF-8')
+
+  # check if there is a BOM character: this is also skipped on *nix, because R
+  # on *nix simply ignores this meaningless character if present, but it hurts
+  # on Windows
+  if (identical(charToRaw(readChar(file, 3L, TRUE)), charToRaw('\UFEFF'))) {
+    warning('You should not include the Byte Order Mark (BOM) in ', file, '. ',
+            'Please re-save it in UTF-8 without BOM. See ',
+            'http://shiny.rstudio.com/articles/unicode.html for more info.')
+    if (getRversion() < '3.0.0')
+      stop('R does not support UTF-8-BOM before 3.0.0. Please upgrade R.')
+    return('UTF-8-BOM')
+  }
+
+  enc <- getOption('encoding')
+  msg <- c(sprintf('The file "%s" is not encoded in UTF-8. ', file),
+           'Please convert its encoding to UTF-8 ',
+           '(e.g. use the menu `File -> Save with Encoding` in RStudio). ',
+           'See http://shiny.rstudio.com/articles/unicode.html for more info.')
+  if (enc == 'UTF-8') stop(msg)
+  # if you publish the app to ShinyApps.io, you will be in trouble
+  warning(c(msg, ' Falling back to the encoding "', enc, '".'))
+
+  enc
+}
+
+# try to read a file using UTF-8 (fall back to getOption('encoding') in case of
+# failure, which defaults to native.enc, i.e. native encoding)
+readUTF8 <- function(file) {
+  enc <- checkEncoding(file)
+  # readLines() does not support UTF-8-BOM directly; has to go through file()
+  if (enc == 'UTF-8-BOM') {
+    file <- base::file(file, encoding = enc)
+    on.exit(close(file), add = TRUE)
+  }
+  x <- readLines(file, encoding = enc, warn = FALSE)
+  enc2native(x)
+}
+
+# similarly, try to source() a file with UTF-8
+sourceUTF8 <- function(file, ...) {
+  source(file, ..., keep.source = TRUE, encoding = checkEncoding(file))
 }

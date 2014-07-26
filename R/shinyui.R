@@ -33,6 +33,7 @@ renderPage <- function(ui, connection, showcase=0) {
 
   deps <- c(
     list(
+      htmlDependency("json2", "2014.02.04", c(href="shared"), script = "json2-min.js"),
       htmlDependency("jquery", "1.11.0", c(href="shared"), script = "jquery.js"),
       htmlDependency("shiny", packageVersion("shiny"), c(href="shared"),
         script = "shiny.js", stylesheet = "shiny.css")
@@ -128,6 +129,6 @@ uiHttpHandler <- function(ui, path = "/") {
       ui
     renderPage(uiValue, textConn, showcaseMode)
     html <- paste(textConnectionValue(textConn), collapse='\n')
-    return(httpResponse(200, content=html))
+    return(httpResponse(200, content=enc2utf8(html)))
   }
 }

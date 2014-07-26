@@ -15,7 +15,8 @@ NULL
 #' @name shiny-package
 #' @aliases shiny
 #' @docType package
-#' @import htmltools httpuv caTools RJSONIO xtable digest methods
+#' @import htmltools httpuv caTools xtable digest methods
+#' @importFrom RJSONIO fromJSON
 NULL
 
 createUniqueId <- function(bytes, prefix = "", suffix = "") {
@@ -29,6 +30,10 @@ createUniqueId <- function(bytes, prefix = "", suffix = "") {
       sep = ""
     )
   })
+}
+
+toJSON <- function(x, ..., digits = getOption("shiny.json.digits", 16)) {
+  RJSONIO::toJSON(x, digits = digits, ...)
 }
 
 # Call the workerId func with no args to get the worker id, and with an arg to
@@ -488,11 +493,13 @@ ShinySession <- setRefClass(
       if (closed){
         return()
       }
-      if (getOption('shiny.trace', FALSE))
+      if (isTRUE(getOption('shiny.trace')))
         message('SEND ',
            gsub('(?m)base64,[a-zA-Z0-9+/=]+','[base64 data]',json,perl=TRUE))
-      if (getOption('shiny.transcode.json', TRUE))
-        json <- iconv(json, to='UTF-8')
+      # first convert to native encoding, then to UTF8, otherwise we may get the
+      # error in Chrome "WebSocket connection failed: Could not decode a text
+      # frame as UTF-8"
+      json <- enc2utf8(enc2native(json))
       .websocket$send(json)
     },
 

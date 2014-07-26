@@ -160,6 +160,8 @@ pageWithSidebar <- function(headerPanel,
 #' @param theme Alternative Bootstrap stylesheet (normally a css file within the
 #'   www directory). For example, to use the theme located at
 #'   \code{www/bootstrap.css} you would use \code{theme = "bootstrap.css"}.
+#' @param windowTitle The title that should be displayed by the browser window.
+#'   Useful if \code{title} is not a string.
 #' @param icon Optional icon to appear on a \code{navbarMenu} tab.
 #'
 #' @return A UI defintion that can be passed to the \link{shinyUI} function.
@@ -194,7 +196,8 @@ navbarPage <- function(title,
                        collapsable = FALSE,
                        fluid = TRUE,
                        responsive = TRUE,
-                       theme = NULL) {
+                       theme = NULL,
+                       windowTitle = title) {
 
   # alias title so we can avoid conflicts w/ title in withTags
   pageTitle <- title
@@ -259,7 +262,7 @@ navbarPage <- function(title,
 
   # build the page
   bootstrapPage(
-    title = title,
+    title = windowTitle,
     responsive = responsive,
     theme = theme,
     div(class=navbarClass,
@@ -381,6 +384,11 @@ mainPanel <- function(..., width = 8) {
 #'   determine whether the panel should be displayed.
 #' @param ... Elements to include in the panel.
 #'
+#' @note You are not recommended to use special JavaScript characters such as a
+#'   period \code{.} in the input id's, but if you do use them anyway, for
+#'   example, \code{inputId = "foo.bar"}, you will have to use
+#'   \code{input["foo.bar"]} instead of \code{input.foo.bar} to read the input
+#'   value.
 #' @examples
 #' sidebarPanel(
 #'    selectInput(
@@ -576,31 +584,13 @@ checkboxGroupInput <- function(inputId, label, choices, selected = NULL, inline 
   if (!is.null(selected))
     selected <- validateSelected(selected, choices, inputId)
 
-  # Create tags for each of the options
-  ids <- paste0(inputId, seq_along(choices))
-
-  checkboxes <- mapply(ids, choices, names(choices),
-    SIMPLIFY = FALSE, USE.NAMES = FALSE,
-    FUN = function(id, value, name) {
-      inputTag <- tags$input(type = "checkbox",
-                             name = inputId,
-                             id = id,
-                             value = value)
-
-    if (value %in% selected)
-      inputTag$attribs$checked <- "checked"
-
-    tags$label(class = if (inline) "checkbox inline" else "checkbox",
-               inputTag,
-               tags$span(name))
-    }
-  )
+  options <- generateOptions(inputId, choices, selected, inline)
 
   # return label and select tag
   tags$div(id = inputId,
            class = "control-group shiny-input-checkboxgroup",
            controlLabel(inputId, label),
-           checkboxes)
+           options)
 }
 
 # Before shiny 0.9, `selected` refers to names/labels of `choices`; now it
@@ -608,11 +598,12 @@ checkboxGroupInput <- function(inputId, label, choices, selected = NULL, inline 
 validateSelected <- function(selected, choices, inputId) {
   # drop names, otherwise toJSON() keeps them too
   selected <- unname(selected)
-  if (is.list(choices)) {
-    # <optgroup> is not there yet
-    if (any(sapply(choices, length) > 1)) return(selected)
-    choices <- unlist(choices)
-  }
+  # if you are using optgroups, you're using shiny > 0.10.0, and you should
+  # already know that `selected` must be a value instead of a label
+  if (needOptgroup(choices)) return(selected)
+
+  if (is.list(choices)) choices <- unlist(choices)
+
   nms <- names(choices)
   # labels and values are identical, no need to validate
   if (identical(nms, unname(choices))) return(selected)
@@ -628,6 +619,29 @@ validateSelected <- function(selected, choices, inputId) {
             "for the input '", inputId, "'")
   }
   selected
+}
+
+# generate options for radio buttons and checkbox groups (type = 'checkbox' or
+# 'radio')
+generateOptions <- function(inputId, choices, selected, inline, type = 'checkbox') {
+  # create tags for each of the options
+  ids <- paste0(inputId, seq_along(choices))
+  # generate a list of <input type=? [checked] />
+  mapply(
+    ids, choices, names(choices),
+    FUN = function(id, value, name) {
+      inputTag <- tags$input(
+        type = type, name = inputId, id = id, value = value
+      )
+      if (value %in% selected)
+        inputTag$attribs$checked <- "checked"
+      tags$label(
+        class = paste(type, if (inline) "inline"),
+        inputTag, tags$span(name)
+      )
+    },
+    SIMPLIFY = FALSE, USE.NAMES = FALSE
+  )
 }
 
 #' Create a help text element
@@ -654,20 +668,43 @@ controlLabel <- function(controlName, label) {
 # Takes a vector or list, and adds names (same as the value) to any entries
 # without names.
 choicesWithNames <- function(choices) {
-  if (is.null(choices)) return(choices)  # ignore NULL
+  # Take a vector or list, and convert to list. Also, if any children are
+  # vectors with length > 1, convert those to list. If the list is unnamed,
+  # convert it to a named list with blank names.
+  listify <- function(obj) {
+    # If a list/vector is unnamed, give it blank names
+    makeNamed <- function(x) {
+      if (is.null(names(x))) names(x) <- character(length(x))
+      x
+    }
 
-  # get choice names
-  choiceNames <- names(choices)
-  if (is.null(choiceNames))
-    choiceNames <- character(length(choices))
+    res <- lapply(obj, function(val) {
+      if (is.list(val))
+        listify(val)
+      else if (length(val) == 1)
+        val
+      else
+        makeNamed(as.list(val))
+    })
+
+    makeNamed(res)
+  }
+
+  choices <- listify(choices)
+  if (length(choices) == 0) return(choices)
+
+  # Recurse into any subgroups
+  choices <- mapply(choices, names(choices), FUN = function(choice, name) {
+    if (!is.list(choice)) return(choice)
+    if (name == "") stop('All sub-lists in "choices" must be named.')
+    choicesWithNames(choice)
+  }, SIMPLIFY = FALSE)
 
   # default missing names to choice values
-  missingNames <- choiceNames == ""
-  choiceNames[missingNames] <- paste(choices)[missingNames]
-  names(choices) <- choiceNames
+  missing <- names(choices) == ""
+  names(choices)[missing] <- as.character(choices)[missing]
 
-  # return choices
-  return (choices)
+  choices
 }
 
 #' Create a select list input control
@@ -707,21 +744,11 @@ selectInput <- function(inputId, label, choices, selected = NULL,
 
   # default value if it's not specified
   if (is.null(selected)) {
-    if (!multiple) selected <- choices[[1]]
+    if (!multiple) selected <- firstChoice(choices)
   } else selected <- validateSelected(selected, choices, inputId)
 
-  # Create tags for each of the options
-  options <- HTML(paste("<option value=\"",
-    htmlEscape(choices),
-    "\"",
-    ifelse(choices %in% selected, " selected", ""),
-    ">",
-    htmlEscape(names(choices)),
-    "</option>",
-    sep = "", collapse = "\n"));
-
   # create select tag and add options
-  selectTag <- tags$select(id = inputId, options)
+  selectTag <- tags$select(id = inputId, selectOptions(choices, selected))
   if (multiple)
     selectTag$attribs$multiple <- "multiple"
 
@@ -729,6 +756,44 @@ selectInput <- function(inputId, label, choices, selected = NULL,
   res <- tagList(controlLabel(inputId, label), selectTag)
   if (!selectize) return(res)
   selectizeIt(inputId, res, NULL, width, nonempty = !multiple && !("" %in% choices))
+}
+
+firstChoice <- function(choices) {
+  if (length(choices) == 0L) return()
+  choice <- choices[[1]]
+  if (is.list(choice)) firstChoice(choice) else choice
+}
+
+# Create tags for each of the options; use <optgroup> if necessary.
+# This returns a HTML string instead of tags, because of the 'selected'
+# attribute.
+selectOptions <- function(choices, selected = NULL) {
+  html <- mapply(choices, names(choices), FUN = function(choice, label) {
+    if (is.list(choice)) {
+      # If sub-list, create an optgroup and recurse into the sublist
+      sprintf(
+        '<optgroup label="%s">\n%s\n</optgroup>',
+        htmlEscape(label),
+        selectOptions(choice, selected)
+      )
+
+    } else {
+      # If single item, just return option string
+      sprintf(
+        '<option value="%s"%s>%s</option>',
+        htmlEscape(choice),
+        if (choice %in% selected) ' selected' else '',
+        htmlEscape(label)
+      )
+    }
+  })
+
+  HTML(paste(html, collapse = '\n'))
+}
+
+# need <optgroup> when choices contains sub-lists
+needOptgroup <- function(choices) {
+  any(vapply(choices, is.list, logical(1)))
 }
 
 #' @rdname selectInput
@@ -812,33 +877,14 @@ radioButtons <- function(inputId, label, choices, selected = NULL, inline = FALS
   selected <- if (is.null(selected)) choices[[1]] else {
     validateSelected(selected, choices, inputId)
   }
+  if (length(selected) > 1) stop("The 'selected' argument must be of length 1")
 
-  # Create tags for each of the options
-  ids <- paste0(inputId, seq_along(choices))
-
-  inputTags <- mapply(ids, choices, names(choices),
-    SIMPLIFY = FALSE, USE.NAMES = FALSE,
-    FUN = function(id, value, name) {
-      inputTag <- tags$input(type = "radio",
-                             name = inputId,
-                             id = id,
-                             value = value)
-
-      if (identical(value, selected))
-        inputTag$attribs$checked = "checked"
-
-      # Put the label text in a span
-      tags$label(class = if (inline) "radio inline" else "radio",
-                inputTag,
-                tags$span(name)
-      )
-    }
-  )
+  options <- generateOptions(inputId, choices, selected, inline, type = 'radio')
 
   tags$div(id = inputId,
     class = 'control-group shiny-input-radiogroup',
     label %AND% tags$label(class = "control-label", `for` = inputId, label),
-    inputTags)
+    options)
 }
 
 #' Create a submit button
@@ -1490,13 +1536,15 @@ buildTabset <- function(tabs,
 #' text will be included within an HTML \code{div} tag by default.
 #' @param outputId output variable to read the value from
 #' @param container a function to generate an HTML element to contain the text
+#' @param inline use an inline (\code{span()}) or block container (\code{div()})
+#'   for the output
 #' @return A text output element that can be included in a panel
 #' @details Text is HTML-escaped prior to rendering. This element is often used
-#' to display \link{renderText} output variables.
+#'   to display \link{renderText} output variables.
 #' @examples
 #' h3(textOutput("caption"))
 #' @export
-textOutput <- function(outputId, container = div) {
+textOutput <- function(outputId, container = if (inline) span else div, inline = FALSE) {
   container(id = outputId, class = "shiny-text-output")
 }
 
@@ -1530,6 +1578,7 @@ verbatimTextOutput <- function(outputId) {
 #'   \code{"400px"}, \code{"auto"}) or a number, which will be coerced to a
 #'   string and have \code{"px"} appended.
 #' @param height Image height
+#' @inheritParams textOutput
 #' @return An image output element that can be included in a panel
 #' @examples
 #' # Show an image
@@ -1537,38 +1586,45 @@ verbatimTextOutput <- function(outputId) {
 #'   imageOutput("dataImage")
 #' )
 #' @export
-imageOutput <- function(outputId, width = "100%", height="400px") {
+imageOutput <- function(outputId, width = "100%", height="400px", inline=FALSE) {
   style <- paste("width:", validateCssUnit(width), ";",
     "height:", validateCssUnit(height))
-  div(id = outputId, class = "shiny-image-output", style = style)
+  container <- if (inline) span else div
+  container(id = outputId, class = "shiny-image-output", style = style)
 }
 
 #' Create an plot output element
 #'
 #' Render a \link{renderPlot} within an application page.
 #' @param outputId output variable to read the plot from
-#' @param width Plot width. Must be a valid CSS unit (like \code{"100\%"},
-#'   \code{"400px"}, \code{"auto"}) or a number, which will be coerced to a
-#'   string and have \code{"px"} appended.
-#' @param height Plot height
+#' @param width,height Plot width/height. Must be a valid CSS unit (like
+#'   \code{"100\%"}, \code{"400px"}, \code{"auto"}) or a number, which will be
+#'   coerced to a string and have \code{"px"} appended. These two arguments are
+#'   ignored when \code{inline = TRUE}, in which case the width/height of a plot
+#'   must be specified in \code{renderPlot()}.
 #' @param clickId If not \code{NULL}, the plot will send coordinates to the
 #'   server whenever it is clicked. This information will be accessible on the
-#'   \code{input} object using \code{input$}\emph{\code{clickId}}. The value will be a
-#'   named list or vector with \code{x} and \code{y} elements indicating the
-#'   mouse position in user units.
+#'   \code{input} object using \code{input$}\emph{\code{clickId}}. The value
+#'   will be a named list or vector with \code{x} and \code{y} elements
+#'   indicating the mouse position in user units.
 #' @param hoverId If not \code{NULL}, the plot will send coordinates to the
 #'   server whenever the mouse pauses on the plot for more than the number of
 #'   milliseconds determined by \code{hoverTimeout}. This information will be
-#    accessible on the \code{input} object using \code{input$}\emph{\code{clickId}}.
-#'   The value will be \code{NULL} if the user is not hovering, and a named
-#'   list or vector with \code{x} and \code{y} elements indicating the mouse
-#'   position in user units.
+#'   accessible on the \code{input} object using
+#'   \code{input$}\emph{\code{clickId}}. The value will be \code{NULL} if the
+#'   user is not hovering, and a named list or vector with \code{x} and \code{y}
+#'   elements indicating the mouse position in user units.
 #' @param hoverDelay The delay for hovering, in milliseconds.
 #' @param hoverDelayType The type of algorithm for limiting the number of hover
 #'   events. Use \code{"throttle"} to limit the number of hover events to one
 #'   every \code{hoverDelay} milliseconds. Use \code{"debounce"} to suspend
 #'   events while the cursor is moving, and wait until the cursor has been at
 #'   rest for \code{hoverDelay} milliseconds before sending an event.
+#' @inheritParams textOutput
+#' @note The arguments \code{clickId} and \code{hoverId} only work for R base
+#'   graphics (see the \pkg{\link{graphics}} package). They do not work for
+#'   \pkg{\link[grid:grid-package]{grid}}-based graphics, such as \pkg{ggplot2},
+#'   \pkg{lattice}, and so on.
 #' @return A plot output element that can be included in a panel
 #' @examples
 #' # Show a plot of the generated distribution
@@ -1578,7 +1634,7 @@ imageOutput <- function(outputId, width = "100%", height="400px") {
 #' @export
 plotOutput <- function(outputId, width = "100%", height="400px",
                        clickId = NULL, hoverId = NULL, hoverDelay = 300,
-                       hoverDelayType = c("debounce", "throttle")) {
+                       hoverDelayType = c("debounce", "throttle"), inline = FALSE) {
   if (is.null(clickId) && is.null(hoverId)) {
     hoverDelay <- NULL
     hoverDelayType <- NULL
@@ -1586,9 +1642,12 @@ plotOutput <- function(outputId, width = "100%", height="400px",
     hoverDelayType <- match.arg(hoverDelayType)[[1]]
   }
 
-  style <- paste("width:", validateCssUnit(width), ";",
-    "height:", validateCssUnit(height))
-  div(id = outputId, class = "shiny-plot-output", style = style,
+  style <- if (!inline) {
+    paste("width:", validateCssUnit(width), ";", "height:", validateCssUnit(height))
+  }
+
+  container <- if (inline) span else div
+  container(id = outputId, class = "shiny-plot-output", style = style,
       `data-click-id` = clickId,
       `data-hover-id` = hoverId,
       `data-hover-delay` = hoverDelay,
@@ -1640,19 +1699,19 @@ dataTableOutput <- function(outputId) {
 #' server side. It is currently just an alias for \code{htmlOutput}.
 #'
 #' @param outputId output variable to read the value from
+#' @inheritParams textOutput
 #' @return An HTML output element that can be included in a panel
 #' @examples
 #' htmlOutput("summary")
 #' @export
-htmlOutput <- function(outputId) {
-  div(id = outputId, class="shiny-html-output")
+htmlOutput <- function(outputId, inline = FALSE) {
+  container <- if (inline) span else div
+  container(id = outputId, class="shiny-html-output")
 }
 
 #' @rdname htmlOutput
 #' @export
-uiOutput <- function(outputId) {
-  htmlOutput(outputId)
-}
+uiOutput <- htmlOutput
 
 #' Create a download button or link
 #'

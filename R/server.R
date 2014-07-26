@@ -249,8 +249,11 @@ decodeMessage <- function(data) {
     packBits(rawToBits(data[pos:(pos+3)]), type='integer')
   }
 
-  if (readInt(1) != 0x01020202L)
-    return(fromJSON(rawToChar(data), asText=TRUE, simplify=FALSE))
+  if (readInt(1) != 0x01020202L) {
+    # use native encoding for the message
+    nativeData <- iconv(rawToChar(data), 'UTF-8')
+    return(fromJSON(nativeData, asText=TRUE, simplify=FALSE))
+  }
 
   i <- 5
   parts <- list()
@@ -278,7 +281,7 @@ createAppHandlers <- function(httpHandlers, serverFuncSource) {
   # This value, if non-NULL, must be present on all HTTP and WebSocket
   # requests as the Shiny-Shared-Secret header or else access will be
   # denied (403 response for HTTP, and instant close for websocket).
-  sharedSecret <- getOption('shiny.sharedSecret', NULL)
+  sharedSecret <- getOption('shiny.sharedSecret')
 
   appHandlers <- list(
     http = joinHandlers(c(
@@ -303,7 +306,7 @@ createAppHandlers <- function(httpHandlers, serverFuncSource) {
         if (is.character(msg))
           msg <- charToRaw(msg)
 
-        if (getOption('shiny.trace', FALSE)) {
+        if (isTRUE(getOption('shiny.trace'))) {
           if (binary)
             message("RECV ", '$$binary data$$')
           else
@@ -634,7 +637,9 @@ runApp <- function(appDir=getwd(),
   if (is.character(appDir)) {
     desc <- file.path.ci(appDir, "DESCRIPTION")
     if (file.exists(desc)) {
-      settings <- read.dcf(desc)
+      con <- file(desc, encoding = checkEncoding(desc))
+      on.exit(close(con), add = TRUE)
+      settings <- read.dcf(con)
       if ("DisplayMode" %in% colnames(settings)) {
         mode <- settings[1,"DisplayMode"]
         if (mode == "Showcase") {
