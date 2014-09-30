@@ -24,6 +24,15 @@
     return val.replace(/([!"#$%&'()*+,.\/:;<=>?@\[\\\]^`{|}~])/g, '\\$1');
   };
 
+  function escapeHTML(str) {
+    return str.replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#039;")
+              .replace(/\//g,"&#x2F;");
+  }
+
   function randomId() {
     return Math.floor(0x100000000 + (Math.random() * 0xF00000000)).toString(16);
   }
@@ -37,7 +46,7 @@
     else if (window.getComputedStyle) {
       // getComputedStyle can return null when we're inside a hidden iframe on
       // Firefox; don't attempt to retrieve style props in this case.
-      // https://bugzilla.mozilla.org/show_bug.cgi?id=548397 
+      // https://bugzilla.mozilla.org/show_bug.cgi?id=548397
       var style = document.defaultView.getComputedStyle(el, null);
       if (style)
         x = style.getPropertyValue(styleProp);
@@ -70,6 +79,28 @@
     if (blob.webkitSlice)
       return blob.webkitSlice(start, end);
     throw "Blob doesn't support slice";
+  }
+
+  // Given an element and a function(width, height), returns a function(). When
+  // the output function is called, it calls the input function with the offset
+  // width and height of the input element--but only if the size of the element
+  // is non-zero and the size is different than the last time the output
+  // function was called.
+  //
+  // Basically we are trying to filter out extraneous calls to func, so that
+  // when the window size changes or whatever, we don't run resize logic for
+  // elements that haven't actually changed size or aren't visible anyway.
+  function makeResizeFilter(el, func) {
+    var lastSize = {};
+    return function() {
+      var size = { w: el.offsetWidth, h: el.offsetHeight };
+      if (size.w === 0 && size.h === 0)
+        return;
+      if (size.w === lastSize.w && size.h === lastSize.h)
+        return;
+      lastSize = size;
+      func(size.w, size.h);
+    };
   }
 
   var _BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder ||
@@ -886,13 +917,10 @@
     });
 
     addMessageHandler('progress', function(message) {
-      $(document.documentElement).addClass('shiny-busy');
-      for (var i = 0; i < message.length; i++) {
-        var key = message[i];
-        var binding = this.$bindings[key];
-        if (binding && binding.showProgress) {
-          binding.showProgress(true);
-        }
+      if (message.type && message.message) {
+        var handler = progressHandlers[message.type];
+        if (handler)
+          handler.call(this, message.message);
       }
     });
 
@@ -923,6 +951,96 @@
     addMessageHandler('config', function(message) {
       this.config = message;
     });
+
+
+    // Progress reporting ====================================================
+
+    var progressHandlers = {
+      // Progress for a particular object
+      binding: function(message) {
+        $(document.documentElement).addClass('shiny-busy');
+        var key = message.id;
+        var binding = this.$bindings[key];
+        if (binding && binding.showProgress) {
+          binding.showProgress(true);
+        }
+      },
+      // Open a page-level progress bar
+      open: function(message) {
+        // Add progress container (for all progress items) if not already present
+        var $container = $('.shiny-progress-container');
+        if ($container.length === 0) {
+          $container = $('<div class="shiny-progress-container"></div>');
+          $('body').append($container);
+        }
+
+        // Add div for just this progress ID
+        var depth = $('.shiny-progress.open').length;
+        var $progress = $(progressHandlers.progressHTML);
+        $progress.attr('id', message.id);
+        $container.append($progress);
+
+        // Stack bars
+        var $progressBar = $progress.find('.progress');
+        $progressBar.css('top', depth * $progressBar.height() + 'px');
+
+        // Stack text objects
+        var $progressText = $progress.find('.progress-text');
+        $progressText.css('top', 3 * $progressBar.height() +
+          depth * $progressText.outerHeight() + 'px');
+
+        $progress.hide();
+      },
+
+      // Update page-level progress bar
+      update: function(message) {
+        var $progress = $('#' + message.id + '.shiny-progress');
+        if (typeof(message.message) !== 'undefined') {
+          $progress.find('.progress-message').text(message.message);
+        }
+        if (typeof(message.detail) !== 'undefined') {
+          $progress.find('.progress-detail').text(message.detail);
+        }
+        if (typeof(message.value) !== 'undefined') {
+          if (message.value !== null) {
+            $progress.find('.progress').show();
+            $progress.find('.bar').width((message.value*100) + '%');
+          }
+          else {
+            $progress.find('.progress').hide();
+          }
+        }
+
+        $progress.fadeIn();
+      },
+
+      // Close page-level progress bar
+      close: function(message) {
+        var $progress = $('#' + message.id + '.shiny-progress');
+        $progress.removeClass('open');
+
+        $progress.fadeOut({
+          complete: function() {
+            $progress.remove();
+
+            // If this was the last shiny-progress, remove container
+            if ($('.shiny-progress').length === 0)
+              $('.shiny-progress-container').remove();
+          }
+        });
+      },
+
+      progressHTML: '<div class="shiny-progress open">' +
+        '<div class="progress progress-striped active"><div class="bar"></div></div>' +
+        '<div class="progress-text">' +
+          '<span class="progress-message">foo</span>' +
+          '<span class="progress-detail"></span>' +
+        '</div>' +
+      '</div>'
+    };
+
+    exports.progressHandlers = progressHandlers;
+
 
   }).call(ShinyApp.prototype);
 
@@ -1260,13 +1378,17 @@
   });
   outputBindings.register(htmlOutputBinding, 'shiny.htmlOutput');
 
-  // Render HTML in a DOM element, inserting singletons into head as needed
-  exports.renderHtml = function(html, el, dependencies) {
+  var renderDependencies = exports.renderDependencies = function(dependencies) {
     if (dependencies) {
       $.each(dependencies, function(i, dep) {
         renderDependency(dep);
       });
     }
+  };
+
+  // Render HTML in a DOM element, inserting singletons into head as needed
+  exports.renderHtml = function(html, el, dependencies) {
+    renderDependencies(dependencies);
     return singletons.renderHtml(html, el);
   };
 
@@ -1304,16 +1426,39 @@
     if (dep.stylesheet) {
       var stylesheets = $.map(asArray(dep.stylesheet), function(stylesheet) {
         return $("<link rel='stylesheet' type='text/css'>")
-          .attr("href", href + "/" + stylesheet);
+          .attr("href", href + "/" + encodeURI(stylesheet));
       });
       $head.append(stylesheets);
     }
 
     if (dep.script) {
       var scripts = $.map(asArray(dep.script), function(scriptName) {
-        return $("<script>").attr("src", href + "/" + scriptName);
+        return $("<script>").attr("src", href + "/" + encodeURI(scriptName));
       });
       $head.append(scripts);
+    }
+
+    if (dep.attachment) {
+      // dep.attachment might be a single string, an array, or an object.
+      var attachments = dep.attachment;
+      if (typeof(attachments) === "string")
+        attachments = [attachments];
+      if ($.isArray(attachments)) {
+        // The contract for attachments is that arrays of attachments are
+        // addressed using 1-based indexes. Convert this array to an object.
+        var tmp = {};
+        $.each(attachments, function(index, attachment) {
+          tmp[(index + 1) + ""] = attachment;
+        });
+        attachments = tmp;
+      }
+
+      var attach = $.map(attachments, function(attachment, key) {
+        return $("<link rel='attachment'>")
+          .attr("id", dep.name + "-" + key + "-attachment")
+          .attr("href", href + "/" + encodeURI(attachment));
+      });
+      $head.append(attach);
     }
 
     if (dep.head) {
@@ -1429,9 +1574,12 @@
       }).join('');
       header = '<thead><tr>' + header + '</tr></thead>';
       var footer = '';
-      if (data.options === null || data.options.bFilter !== false) {
+      if (data.options === null || data.options.searching !== false) {
         footer = $.map(colnames, function(x) {
-          return '<th><input type="text" placeholder="' + x + '" /></th>';
+          // placeholder needs to be escaped (and HTML tags are stripped off)
+          return '<th><input type="text" placeholder="' +
+                 escapeHTML(x.replace(/(<([^>]+)>)/ig, '')) +
+                 '" /></th>';
         }).join('');
         footer = '<tfoot>' + footer + '</tfoot>';
       }
@@ -1446,13 +1594,21 @@
           data.options[x] = eval('(' + data.options[x] + ')');
         });
 
-      var oTable = $(el).children("table").dataTable($.extend({
-        "bProcessing": true,
-        "bServerSide": true,
-        "aaSorting": [],
-        "bSortClasses": false,
-        "iDisplayLength": 25,
-        "sAjaxSource": data.action
+      // caseInsensitive searching? default true
+      var searchCI = data.options === null || typeof(data.options.search) === 'undefined' ||
+                     data.options.search.caseInsensitive !== false;
+      var oTable = $(el).children("table").DataTable($.extend({
+        "processing": true,
+        "serverSide": true,
+        "order": [],
+        "orderClasses": false,
+        "pageLength": 25,
+        "ajax": {
+          "url": data.action,
+          "data": function(d) {
+            d.search.caseInsensitive = searchCI;
+          }
+        }
       }, data.options));
       // the table object may need post-processing
       if (typeof data.callback === 'string') {
@@ -1464,16 +1620,18 @@
       // use debouncing for searching boxes
       $el.find('label input').first().unbind('keyup')
            .keyup(debounce(data.searchDelay, function() {
-              oTable.fnFilter(this.value);
+              oTable.search(this.value).draw();
             }));
       var searchInputs = $el.find("tfoot input");
       if (searchInputs.length > 0) {
-        $.each(oTable.fnSettings().aoColumns, function(i, x) {
+        // this is a little weird: aoColumns/bSearchable are still in DT 1.10
+        // https://github.com/DataTables/DataTables/issues/388
+        $.each(oTable.settings()[0].aoColumns, function(i, x) {
           // hide the text box if not searchable
           if (!x.bSearchable) searchInputs.eq(i).hide();
         });
         searchInputs.keyup(debounce(data.searchDelay, function() {
-          oTable.fnFilter(this.value, searchInputs.index(this));
+          oTable.column(searchInputs.index(this)).search(this.value).draw();
         }));
       }
       // FIXME: ugly scrollbars in tab panels b/c Bootstrap uses 'visible: auto'
@@ -2073,7 +2231,7 @@
     },
     setValue: function(el, value) {
       var selectize = this._selectize(el);
-      if (selectize !== undefined) {
+      if (typeof(selectize) !== 'undefined') {
         selectize.setValue(value);
       } else $(el).val(value);
     },
@@ -2119,13 +2277,14 @@
         selectize.clearOptions();
         selectize.settings.load = function(query, callback) {
           if (!query.length) return callback();
+          var settings = selectize.settings;
           $.ajax({
             url: data.url,
             data: {
               query: query,
-              field: JSON.stringify(selectize.settings.searchField),
-              conju: selectize.settings.searchConjunction,
-              maxop: selectize.settings.maxOptions
+              field: JSON.stringify([settings.searchField]),
+              conju: settings.searchConjunction,
+              maxop: settings.maxOptions
             },
             type: 'GET',
             error: function() {
@@ -2170,7 +2329,7 @@
         searchField: ['label']
       }, JSON.parse(config.html()));
       // selectize created from selectInput()
-      if (config.data('nonempty') !== undefined) {
+      if (typeof(config.data('nonempty')) !== 'undefined') {
         options = $.extend(options, {
           onItemRemove: function(value) {
             if (this.getValue() === "")
@@ -2485,6 +2644,45 @@
   });
   inputBindings.register(bootstrapTabInputBinding, 'shiny.bootstrapTabInput');
 
+  var IE8FileUploader = function(shinyapp, id, fileEl) {
+    this.shinyapp = shinyapp;
+    this.id = id;
+    this.fileEl = fileEl;
+    this.beginUpload();
+  };
+  (function() {
+    this.beginUpload = function() {
+      var self = this;
+      // Create invisible frame
+      var iframeId = 'shinyupload_iframe_' + this.id;
+      this.iframe = document.createElement('iframe');
+      this.iframe.id = iframeId;
+      this.iframe.name = iframeId;
+      this.iframe.setAttribute('style', 'position: fixed; top: 0; left: 0; width: 0; height: 0; border: none');
+      $('body').append(this.iframe);
+      var iframeDestroy = function() {
+        // Forces Shiny to flushReact, flush outputs, etc. Without this we get
+        // invalidated reactives, but observers don't actually execute.
+        self.shinyapp.makeRequest('uploadieFinish', [], function(){}, function(){});
+        $(self.iframe).remove();
+      };
+      if (this.iframe.attachEvent) {
+        this.iframe.attachEvent('onload', iframeDestroy);
+      } else {
+        this.iframe.onload = iframeDestroy;
+      }
+
+      this.form = document.createElement('form');
+      this.form.method = 'POST';
+      this.form.setAttribute('enctype', 'multipart/form-data');
+      this.form.action = "session/" + encodeURI(this.shinyapp.config.sessionId)
+                         + "/uploadie/" + encodeURI(this.id);
+      this.form.id = 'shinyupload_form_' + this.id;
+      this.form.target = iframeId;
+      $(this.form).insertAfter(this.fileEl).append(this.fileEl);
+      this.form.submit();
+    };
+  }).call(IE8FileUploader.prototype);
 
   var FileUploader = function(shinyapp, id, files) {
     this.shinyapp = shinyapp;
@@ -2619,13 +2817,18 @@
       uploader.abort();
 
     var files = evt.target.files;
+    var IE8 = typeof(files) === 'undefined';
     var id = fileInputBinding.getId(evt.target);
 
-    if (files.length === 0)
+    if (!IE8 && files.length === 0)
       return;
 
     // Start the new upload and put the uploader in 'currentUploader'.
-    el.data('currentUploader', new FileUploader(exports.shinyapp, id, files));
+    if (IE8) {
+      new IE8FileUploader(exports.shinyapp, id, evt.target);
+    } else {
+      el.data('currentUploader', new FileUploader(exports.shinyapp, id, files));
+    }
   }
 
   var fileInputBinding = new InputBinding();
@@ -2655,6 +2858,14 @@
   var OutputBindingAdapter = function(el, binding) {
     this.el = el;
     this.binding = binding;
+
+    // If the binding actually has a resize method, override the prototype of
+    // onResize with a version that does a makeResizeFilter on the element.
+    if (binding.resize) {
+      this.onResize = makeResizeFilter(el, function(width, height) {
+        binding.resize(el, width, height);
+      });
+    }
   };
   (function() {
     this.onValueChange = function(data) {
@@ -2665,6 +2876,9 @@
     };
     this.showProgress = function(show) {
       this.binding.showProgress(this.el, show);
+    };
+    this.onResize = function() {
+      // Intentionally left blank; see constructor
     };
   }).call(OutputBindingAdapter.prototype);
 
@@ -2995,6 +3209,9 @@
           inputs.setInput('.clientdata_output_' + this.id + '_width', this.offsetWidth);
           inputs.setInput('.clientdata_output_' + this.id + '_height', this.offsetHeight);
         }
+      });
+      $('.shiny-bound-output').each(function() {
+        $(this).data('shiny-output-binding').onResize();
       });
     }
 

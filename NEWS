@@ -1,3 +1,46 @@
+shiny 0.10.2
+--------------------------------------------------------------------------------
+
+* The minimal version of R required for the shiny package is 3.0.0 now.
+
+* Shiny apps can now consist of a single file, app.R, instead of ui.R and
+  server.R.
+
+* Upgraded DataTables from 1.9.4 to 1.10.2. This might be a breaking change if
+  you have customized the DataTables options in your apps. (More info:
+  https://github.com/rstudio/shiny/pull/558)
+
+* File uploading via `fileInput()` works for Internet Explorer 8 and 9 now. Note
+  IE8/9 do not support multiple files from a single file input. If you need to
+  upload multiple files, you have to use one file input for each file.
+
+* Switched away from reference classes to R6.
+
+* Reactive log performance has been greatly improved.
+
+* Added `Progress` and `withProgress`, to display the progress of computation
+  on the client browser.
+
+* Fixed #557: updateSelectizeInput(choices, server = TRUE) did not work when
+  `choices` is a character vector.
+
+* Searching in DataTables is case-insensitive and the search strings are not
+  treated as regular expressions by default now. If you want case-sensitive
+  searching or regular expressions, you can use the configuration options
+  `search$caseInsensitive` and `search$regex`, e.g. `renderDataTable(...,
+  options = list(search = list(caseInsensitve = FALSE, regex = TRUE)))`.
+
+* Added support for `htmltools::htmlDependency`'s new `attachment` parameter to
+  `renderUI`/`uiOutput`.
+
+* Exported `createWebDependency`. It takes an `htmltools::htmlDependency` object
+  and makes it available over Shiny's built-in web server.
+
+* Custom output bindings can now render `htmltools::htmlDependency` objects at
+  runtime using `Shiny.renderDependencies()`.
+
+* Fixes to rounding behavior of sliderInput. (#301, #502)
+
 shiny 0.10.1
 --------------------------------------------------------------------------------
 
@@ -15,7 +58,7 @@ shiny 0.10.1
 * Added an `inline` argument to `textOutput()`, `imageOutput()`, `plotOutput()`,
   and `htmlOutput()`. When `inline = TRUE`, these outputs will be put in
   `span()` instead of the default `div()`. This occurs automatically when these
-  outputs are created via the inline expressions (e.g. `r textOutput(expr)`) in
+  outputs are created via the inline expressions (e.g. `r renderText(expr)`) in
   R Markdown documents. See an R Markdown example at
   http://shiny.rstudio.com/gallery/inline-output.html (#512)
 

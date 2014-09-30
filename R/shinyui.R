@@ -14,7 +14,7 @@ NULL
 #' # now we can just write "static" content without withMathJax()
 #' div("more math here $$\\sqrt{2}$$")
 withMathJax <- function(...) {
-  path <- 'https://c328740.ssl.cf1.rackcdn.com/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML'
+  path <- 'https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML'
   tagList(
     tags$head(
       singleton(tags$script(src = path, type = 'text/javascript'))
@@ -99,7 +99,7 @@ shinyUI <- function(ui) {
   ui
 }
 
-uiHttpHandler <- function(ui, path = "/") {
+uiHttpHandler <- function(ui, uiPattern = "^/$") {
 
   force(ui)
 
@@ -107,7 +107,7 @@ uiHttpHandler <- function(ui, path = "/") {
     if (!identical(req$REQUEST_METHOD, 'GET'))
       return(NULL)
 
-    if (req$PATH_INFO != path)
+    if (!isTRUE(grepl(uiPattern, req$PATH_INFO)))
       return(NULL)
 
     textConn <- textConnection(NULL, "w")
@@ -124,9 +124,12 @@ uiHttpHandler <- function(ui, path = "/") {
         ui(req)
       else
         ui()
-    }
-    else
+    } else {
       ui
+    }
+    if (is.null(uiValue))
+      return(NULL)
+
     renderPage(uiValue, textConn, showcaseMode)
     html <- paste(textConnectionValue(textConn), collapse='\n')
     return(httpResponse(200, content=enc2utf8(html)))

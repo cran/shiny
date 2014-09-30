@@ -445,7 +445,7 @@ updateSelectizeInput <- function(session, inputId, label = NULL, choices = NULL,
 selectizeJSON <- function(data, req) {
   query <- parseQueryString(req$QUERY_STRING)
   # extract the query variables, conjunction (and/or), search string, maximum options
-  var <- fromJSON(query$field)
+  var <- unlist(fromJSON(query$field, asText = TRUE))
   cjn <- if (query$conju == 'and') all else any
   # all keywords in lower-case, for case-insensitive matching
   key <- unique(strsplit(tolower(query$query), '\\s+')[[1]])
@@ -455,8 +455,8 @@ selectizeJSON <- function(data, req) {
   # convert a single vector to a data frame so it returns {label: , value: }
   # later in JSON; other objects return arbitrary JSON {x: , y: , foo: , ...}
   data <- if (is.atomic(data)) {
-    data <- choicesWithNames(data)
-    data.frame(label = names(data), value = data, stringsAsFactors = FALSE)
+    data.frame(label = names(choicesWithNames(data)), value = data,
+               stringsAsFactors = FALSE)
   } else as.data.frame(data, stringsAsFactors = FALSE)
 
   # start searching for keywords in all specified columns
