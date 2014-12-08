@@ -1,7 +1,7 @@
-2ab43ae74dad9348f9bcb902fa1905ad *DESCRIPTION
+9622e0fdbed5b1573f8931b3e881b7d5 *DESCRIPTION
 30a1098757517b4a4bafea955bce35c1 *NAMESPACE
-4f32cbb09790c5b71212688f4894170f *NEWS
-e2215982261e90982c5c6a54d2973f9e *R/app.R
+2ff2ea8a8d50d47183ef32676be59d29 *NEWS
+592d1a1ade726981c7bf3e8adb8ca2a7 *R/app.R
 54805f41b7f6e96a56bc41d8da0e5451 *R/bootstrap-layout.R
 ff11b5f8f5a1206aea0631f21384f13e *R/bootstrap.R
 d18246ad3e9786fc0a4e7485cbb63eca *R/cache.R
@@ -286,7 +286,7 @@ ee9cff37cfaccc5290e747c39736a7dd *man/runExample.Rd
 b6b3c301d824451f18f8442b3619f13b *man/serverInfo.Rd
 61457e2ab79a440e1c46b0ca8cb614f5 *man/session.Rd
 70c74c67b848ce27fdb17de728399f75 *man/shiny-package.Rd
-c7defe70daa327f61c9338fab462b5dd *man/shinyApp.Rd
+0c1bd930105fb07b6012e042f0403b6c *man/shinyApp.Rd
 56d5fa80a3f40eb38008cb090fdceffb *man/shinyDeprecated.Rd
 38fcc186b481ca374066f8fd9a98ca4c *man/shinyServer.Rd
 287b746d2d2089a43ea99dc24c929c05 *man/shinyUI.Rd
