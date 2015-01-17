@@ -35,8 +35,6 @@ showcaseHead <- function() {
       script = "jquery-ui.min.js"),
     htmlDependency("showdown", "0.3.1", c(href="shared/showdown/compressed"),
       script = "showdown.js"),
-    htmlDependency("font-awesome", "4.0.3", c(href="shared/font-awesome"),
-      stylesheet = "css/font-awesome.min.css"),
     htmlDependency("highlight.js", "6.2", c(href="shared/highlight"),
       script = "highlight.pack.js")
   )
@@ -62,7 +60,7 @@ showcaseHead <- function() {
 appMetadata <- function(desc) {
   cols <- colnames(desc)
   if ("Title" %in% cols)
-    with(tags, h4(class="muted shiny-showcase-apptitle", desc[1,"Title"],
+    with(tags, h4(class="text-muted shiny-showcase-apptitle", desc[1,"Title"],
       if ("Author" %in% cols) small(
         br(), "by",
         if ("AuthorUrl" %in% cols)
@@ -85,9 +83,10 @@ showcaseCodeTabs <- function(codeLicense) {
   rFiles <- list.files(pattern = "\\.[rR]$")
   with(tags, div(id="showcase-code-tabs",
     a(id="showcase-code-position-toggle",
-      class="btn btn-default btn-small",
+      class="btn btn-default btn-sm",
       onclick="toggleCodePosition()",
-      i(class="fa fa-level-up", "show with app")),
+      icon("level-up"),
+      "show with app"),
     ul(class="nav nav-tabs",
        lapply(rFiles, function(rFile) {
          li(class=if (tolower(rFile) %in% c("app.r", "server.r")) "active" else "",
@@ -128,17 +127,17 @@ showcaseAppInfo <- function() {
   with(tags,
     div(class="container-fluid shiny-code-container well",
         id="showcase-well",
-        div(class="row-fluid",
+        div(class="row",
           if (hasDesc || hasReadme) {
-            div(id="showcase-app-metadata", class="span4",
+            div(id="showcase-app-metadata", class="col-sm-4",
                 if (hasDesc) appMetadata(desc) else "",
                 if (hasReadme) div(id="readme-md"))
           } else "",
           div(id="showcase-code-inline",
-              class=if (hasReadme || hasDesc) "span8" else "span10 offset1",
+              class=if (hasReadme || hasDesc) "col-sm-8" else "col-sm-10 col-sm-offset-1",
               showcaseCodeTabs(
                 if (hasDesc && "License" %in% colnames(desc)) {
-                  small(class="showcase-code-license muted",
+                  small(class="showcase-code-license text-muted",
                         "Code license: ",
                         licenseLink(desc[1,"License"]))
                 } else "")))))
@@ -151,7 +150,7 @@ showcaseBody <- function(htmlBody) {
     table(id="showcase-app-code",
           tr(td(id="showcase-app-container",
                 class="showcase-app-container-expanded",
-                HTML(htmlBody),
+                htmlBody,
              td(id="showcase-sxs-code",
                 class="showcase-sxs-code-collapsed")))),
     showcaseAppInfo()))
@@ -161,4 +160,20 @@ showcaseBody <- function(htmlBody) {
 setShowcaseDefault <- function(showcaseDefault) {
   .globals$showcaseDefault <- showcaseDefault
   .globals$showcaseOverride <- as.logical(showcaseDefault)
+}
+
+
+# Given a UI tag/tagList, wrap it in appropriate tags for showcase mode.
+showcaseUI <- function(ui) {
+  # If top-level tag is a body, replace its children with children wrapped in
+    # showcase stuff.
+  if (inherits(ui, "shiny.tag") && ui$name == "body") {
+    ui$children <- showcaseUI(ui$children)
+    return(ui)
+  }
+
+  tagList(
+    tags$head(showcaseHead()),
+    showcaseBody(ui)
+  )
 }

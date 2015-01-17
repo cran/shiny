@@ -1,4 +1,12 @@
-/*jshint browser:true, jquery:true, strict:false, curly:false, indent:2*/
+/*jshint
+  undef:true,
+  browser:true,
+  devel: true,
+  jquery:true,
+  strict:false,
+  curly:false,
+  indent:2
+*/
 
 (function() {
   var $ = jQuery;
@@ -10,6 +18,12 @@
   if (/\bQt\//.test(window.navigator.userAgent)) {
     $(document.documentElement).addClass('qt');
     isQt = true;
+  }
+
+  // Enable special treatment for Qt 5 quirks on Linux
+  if (/\bQt\/5/.test(window.navigator.userAgent) &&
+      /Linux/.test(window.navigator.userAgent)) {
+    $(document.documentElement).addClass('qt5');
   }
 
   $(document).on('submit', 'form:not([action])', function(e) {
@@ -1030,10 +1044,11 @@
         });
       },
 
+      // The 'bar' class is needed for backward compatibility with Bootstrap 2.
       progressHTML: '<div class="shiny-progress open">' +
-        '<div class="progress progress-striped active"><div class="bar"></div></div>' +
+        '<div class="progress progress-striped active"><div class="progress-bar bar"></div></div>' +
         '<div class="progress-text">' +
-          '<span class="progress-message">foo</span>' +
+          '<span class="progress-message">message</span>' +
           '<span class="progress-detail"></span>' +
         '</div>' +
       '</div>'
@@ -1605,8 +1620,10 @@
         "pageLength": 25,
         "ajax": {
           "url": data.action,
+          "type": "POST",
           "data": function(d) {
             d.search.caseInsensitive = searchCI;
+            d.escape = data.escape;
           }
         }
       }, data.options));
@@ -1692,7 +1709,7 @@
   var textInputBinding = new InputBinding();
   $.extend(textInputBinding, {
     find: function(scope) {
-      return $(scope).find('input[type="text"]');
+      return $(scope).find('input[type="text"], input[type="password"], input[type="search"], input[type="url"], input[type="email"]');
     },
     getId: function(el) {
       return InputBinding.prototype.getId.call(this, el) || el.name;
@@ -1819,30 +1836,32 @@
   });
   inputBindings.register(checkboxInputBinding, 'shiny.checkboxInput');
 
+
   var sliderInputBinding = {};
   $.extend(sliderInputBinding, textInputBinding, {
     find: function(scope) {
-      // Check if jslider plugin is loaded
-      if (!$.fn.slider)
+      // Check if ionRangeSlider plugin is loaded
+      if (!$.fn.ionRangeSlider)
         return [];
 
-      return $(scope).find('input.jslider');
+      return $(scope).find('input.js-range-slider');
     },
     getValue: function(el) {
-      var sliderVal = $(el).slider("value");
-      if (/;/.test(sliderVal)) {
-        var chunks = sliderVal.split(/;/, 2);
-        return [+chunks[0], +chunks[1]];
+      var result = $(el).data('ionRangeSlider').result;
+      if (this._numValues(el) == 2) {
+        return [+result.from, +result.to];
       }
       else {
-        return +sliderVal;
+        return +result.from;
       }
     },
     setValue: function(el, value) {
-      if (value instanceof Array) {
-        $(el).slider("value", value[0], value[1]);
+      var slider = $(el).data('ionRangeSlider');
+
+      if (this._numValues(el) == 2 && value instanceof Array) {
+        slider.update({ from: value[0], to: value[1] });
       } else {
-        $(el).slider("value", value);
+        slider.update({ from: value });
       }
     },
     subscribe: function(el, callback) {
@@ -1854,15 +1873,27 @@
       $(el).off('.sliderInputBinding');
     },
     receiveMessage: function(el, data) {
-      if (data.hasOwnProperty('value'))
-        this.setValue(el, data.value);
+      var slider = $(el).data('ionRangeSlider');
+      var msg = {};
+
+      if (data.hasOwnProperty('value')) {
+        if (this._numValues(el) == 2 && data.value instanceof Array) {
+          msg.from = data.value[0];
+          msg.to = data.value[1];
+        } else {
+          msg.from = data.value;
+          // Workaround for ionRangeSlider issue #143
+          msg.to = data.value;
+        }
+      }
+      if (data.hasOwnProperty('min'))  msg.min   = data.min;
+      if (data.hasOwnProperty('max'))  msg.max   = data.max;
+      if (data.hasOwnProperty('step')) msg.step  = data.step;
 
       if (data.hasOwnProperty('label'))
         $(el).parent().find('label[for="' + $escape(el.id) + '"]').text(data.label);
 
-      // jslider doesn't support setting other properties
-
-      $(el).trigger('change');
+      slider.update(msg);
     },
     getRatePolicy: function() {
       return {
@@ -1871,23 +1902,17 @@
       };
     },
     getState: function(el) {
-      var $el = $(el);
-      var settings = $el.slider().settings;
-
-      return { label: $el.parent().find('label[for="' + $escape(el.id) + '"]').text(),
-               value:  this.getValue(el),
-               min:    Number(settings.from),
-               max:    Number(settings.to),
-               step:   Number(settings.step),
-               round:  settings.round,
-               format: settings.format.format,
-               locale: settings.format.locale
-             };
     },
     initialize: function(el) {
-      var $el = $(el);
-      $el.slider();
-      $el.next('span.jslider').css('width', $el.data('width'));
+      $(el).ionRangeSlider();
+    },
+
+    // Number of values; 1 for single slider, 2 for range slider
+    _numValues: function(el) {
+      if ($(el).data('ionRangeSlider').options.type === 'double')
+        return 2;
+      else
+        return 1;
     }
   });
   inputBindings.register(sliderInputBinding, 'shiny.sliderInput');
@@ -2111,10 +2136,6 @@
         var end = this._newDate(value[1]);
         $inputs.eq(1).datepicker('update', end);
       }
-
-      // Make it so that the correct items are highlighted when the calendar is
-      // displayed
-      $(el).datepicker('updateDates');
     },
     getState: function(el) {
       var $el = $(el);
@@ -2399,6 +2420,8 @@
       // This will replace all the options
       if (data.hasOwnProperty('options')) {
         // Clear existing options and add each new one
+        $el.find('div.shiny-options-group').remove();
+        // Backward compatibility: for HTML generated by shinybootstrap2 package
         $el.find('label.radio').remove();
         $el.append(data.options);
       }
@@ -2509,6 +2532,8 @@
       // This will replace all the options
       if (data.hasOwnProperty('options')) {
         // Clear existing options and add each new one
+        $el.find('div.shiny-options-group').remove();
+        // Backward compatibility: for HTML generated by shinybootstrap2 package
         $el.find('label.checkbox').remove();
         $el.append(data.options);
       }
@@ -2631,7 +2656,7 @@
         this.setValue(el, data.value);
     },
     subscribe: function(el, callback) {
-      $(el).on('shown.bootstrapTabInputBinding', function(event) {
+      $(el).on('shown.bootstrapTabInputBinding shown.bs.tab.bootstrapTabInputBinding', function(event) {
         callback();
       });
     },
@@ -2675,8 +2700,8 @@
       this.form = document.createElement('form');
       this.form.method = 'POST';
       this.form.setAttribute('enctype', 'multipart/form-data');
-      this.form.action = "session/" + encodeURI(this.shinyapp.config.sessionId)
-                         + "/uploadie/" + encodeURI(this.id);
+      this.form.action = "session/" + encodeURI(this.shinyapp.config.sessionId) +
+                         "/uploadie/" + encodeURI(this.id);
       this.form.id = 'shinyupload_form_' + this.id;
       this.form.target = iframeId;
       $(this.form).insertAfter(this.fileEl).append(this.fileEl);
@@ -2766,12 +2791,12 @@
         function(response) {
           self.$setActive(false);
           self.onProgress(null, 1);
-          self.$label().text('Upload complete');
+          self.$bar().text('Upload complete');
         },
         function(error) {
           self.onError(error);
         });
-      this.$label().text('Finishing upload');
+      this.$bar().text('Finishing upload');
     };
     this.onError = function(message) {
       this.$setError(message || '');
@@ -2782,16 +2807,13 @@
     };
     this.onProgress = function(file, completed) {
       this.$bar().width(Math.round(completed*100) + '%');
-      this.$label().text(file ? file.name : '');
+      this.$bar().text(file ? file.name : '');
     };
     this.$container = function() {
       return $('#' + $escape(this.id) + '_progress.shiny-file-input-progress');
     };
     this.$bar = function() {
-      return $('#' + $escape(this.id) + '_progress.shiny-file-input-progress .bar');
-    };
-    this.$label = function() {
-      return $('#' + $escape(this.id) + '_progress.shiny-file-input-progress label');
+      return $('#' + $escape(this.id) + '_progress.shiny-file-input-progress .progress-bar');
     };
     this.$setVisible = function(visible) {
       this.$container().css('visibility', visible ? 'visible' : 'hidden');
@@ -2800,7 +2822,7 @@
       this.$bar().toggleClass('bar-danger', (error !== null));
       if (error !== null) {
         this.onProgress(null, 1);
-        this.$label().text(error);
+        this.$bar().text(error);
       }
     };
     this.$setActive = function(active) {
@@ -2825,6 +2847,7 @@
 
     // Start the new upload and put the uploader in 'currentUploader'.
     if (IE8) {
+      /*jshint nonew:false */
       new IE8FileUploader(exports.shinyapp, id, evt.target);
     } else {
       el.data('currentUploader', new FileUploader(exports.shinyapp, id, files));
@@ -3279,6 +3302,16 @@
     // of 0x0). It's OK to over-report sizes because the input pipeline will
     // filter out values that haven't changed.
     $(window).resize(debounce(500, sendImageSize));
+    // Need to register callbacks for each Bootstrap 3 class.
+    var bs3classes = ['modal', 'dropdown', 'tab', 'tooltip', 'popover', 'collapse'];
+    $.each(bs3classes, function(idx, classname) {
+      $('body').on('shown.bs.' + classname + '.sendImageSize', '*', sendImageSize);
+      $('body').on('shown.bs.' + classname + '.sendOutputHiddenState ' +
+                   'hidden.bs.' + classname + '.sendOutputHiddenState',
+                   '*', sendOutputHiddenState);
+    });
+
+    // This is needed for Bootstrap 2 compatibility
     $('body').on('shown.sendImageSize', '*', sendImageSize);
     $('body').on('shown.sendOutputHiddenState hidden.sendOutputHiddenState', '*',
                  sendOutputHiddenState);
@@ -3330,7 +3363,6 @@
     evt.preventDefault();
     var self = $(this);
     var target = $('#' + $escape(self.attr('data-target-id')));
-    var slider = target.slider();
     var startLabel = 'Play';
     var stopLabel = 'Pause';
     var loop = self.attr('data-loop') !== undefined &&
@@ -3342,23 +3374,60 @@
       animInterval = +animInterval;
 
     if (!target.data('animTimer')) {
-      // If we're currently at the end, restart
-      if (!slider.canStepNext())
-        slider.resetToStart();
+      var slider;
+      var timer;
 
-      var timer = setInterval(function() {
-        if (loop && !slider.canStepNext()) {
+      // Separate code paths:
+      // Backward compatible code for old-style jsliders (Shiny <= 0.10.2.2),
+      // and new-style ionsliders.
+      if (target.hasClass('jslider')) {
+        slider = target.slider();
+
+        // If we're currently at the end, restart
+        if (!slider.canStepNext())
           slider.resetToStart();
-        }
-        else {
 
-          slider.stepNext();
-
-          if (!loop && !slider.canStepNext()) {
-            self.click(); // stop the animation
+        timer = setInterval(function() {
+          if (loop && !slider.canStepNext()) {
+            slider.resetToStart();
           }
-        }
-      }, animInterval);
+          else {
+            slider.stepNext();
+            if (!loop && !slider.canStepNext()) {
+              self.click(); // stop the animation
+            }
+          }
+        }, animInterval);
+
+      } else {
+        slider = target.data('ionRangeSlider');
+        var sliderCanStep = function() {
+          return slider.result.from < slider.result.max;
+        };
+        var sliderReset = function() {
+          slider.update({from: slider.result.min});
+        };
+        var sliderStep = function() {
+          slider.update({from: slider.result.from + slider.options.step});
+        };
+
+        // If we're currently at the end, restart
+        if (!sliderCanStep())
+          sliderReset();
+
+        timer = setInterval(function() {
+          if (loop && !sliderCanStep()) {
+            sliderReset();
+          }
+          else {
+            sliderStep();
+            if (!loop && !sliderCanStep()) {
+              self.click(); // stop the animation
+            }
+          }
+        }, animInterval);
+      }
+
       target.data('animTimer', timer);
       self.attr('title', stopLabel);
       self.addClass('playing');

@@ -8,9 +8,11 @@ NULL
 #' pre-built widgets make it possible to build beautiful, responsive, and
 #' powerful applications with minimal effort.
 #'
-#' The Shiny tutorial at \url{http://rstudio.github.com/shiny/tutorial} explains
+#' The Shiny tutorial at \url{http://shiny.rstudio.com/tutorial/} explains
 #' the framework in depth, walks you through building a simple application, and
 #' includes extensive annotated examples.
+#'
+#' @seealso \link{shiny-options} for documentation about global options.
 #'
 #' @name shiny-package
 #' @aliases shiny
@@ -19,6 +21,51 @@ NULL
 #' @importFrom RJSONIO fromJSON
 NULL
 
+
+#' Global options for Shiny
+#'
+#' There are a number of global options that affect Shiny's behavior. These can
+#' be set with (for example) \code{options(shiny.trace=TRUE)}.
+#'
+#' \describe{
+#'   \item{shiny.launch.browser}{A boolean which controls the default behavior
+#'     when an app is run. See \code{\link{runApp}} for more information.}
+#'   \item{shiny.trace}{If \code{TRUE}, all of the messages sent between the R
+#'     server and the web browser client will be printed on the console. This
+#'     is useful for debugging.}
+#'   \item{shiny.reactlog}{If \code{TRUE}, enable logging of reactive events,
+#'     which can be viewed later with the \code{\link{showReactLog}} function.
+#'     This incurs a substantial performance penalty and should not be used in
+#'     production.}
+#'   \item{shiny.usecairo}{This is used to disable graphical rendering by the
+#'     Cairo package, if it is installed. See \code{\link{plotPNG}} for more
+#'     information.}
+#'   \item{shiny.maxRequestSize}{This is a number which specifies the maximum
+#'     web request size, which serves as a size limit for file uploads. If
+#'     unset, the maximum request size defaults to 5MB.}
+#'   \item{shiny.suppressMissingContextError}{Normally, invoking a reactive
+#'     outside of a reactive context (or \code{\link{isolate}()}) results in
+#'     an error. If this is \code{TRUE}, don't error in these cases. This
+#'     should only be used for debugging or demonstrations of reactivity at the
+#'     console.}
+#'   \item{shiny.host}{The IP address that Shiny should listen on. See
+#'     \code{\link{runApp}} for more information.}
+#'   \item{shiny.json.digits}{The number of digits to use when converting
+#'     numbers to JSON format to send to the client web browser.}
+#'   \item{shiny.error}{This can be a function which is called when an error
+#'     occurs. For example, \code{options(shiny.error=recover)} will result a
+#'     the debugger prompt when an error occurs.}
+#'   \item{shiny.observer.error}{This can be a function that is called by an
+#'     observer when an unhandled error occurs in it or an upstream reactive.
+#'     By default, these errors will result in a warning at the console, and
+#'     the websocket connection will close.}
+#'   \item{shiny.table.class}{CSS class names to use for tables.}
+#'   \item{shiny.deprecation.messages}{This controls whether messages for
+#'     deprecated functions in Shiny will be printed. See
+#'     \code{\link{shinyDeprecated}} for more information.}
+#' }
+#' @name shiny-options
+NULL
 createUniqueId <- function(bytes, prefix = "", suffix = "") {
   withPrivateSeed({
     paste(
@@ -237,6 +284,8 @@ ShinySession <- R6Class(
       session$clientData        <<- clientData
       session$sendCustomMessage <<- self$.sendCustomMessage
       session$sendInputMessage  <<- self$.sendInputMessage
+      session$unhandledError    <<- self$unhandledError
+      session$close             <<- self$close
       session$onSessionEnded    <<- self$onSessionEnded
       session$onEnded           <<- self$onEnded
       session$onFlush           <<- self$onFlush
@@ -279,7 +328,15 @@ ShinySession <- R6Class(
       "Synonym for onSessionEnded"
       return(onSessionEnded(callback))
     },
+    unhandledError = function(e) {
+      close()
+    },
     close = function() {
+      if (!closed) {
+        .websocket$close()
+      }
+    },
+    wsClosed = function() {
       closed <<- TRUE
       for (output in .outputs) {
         output$suspend()
@@ -561,7 +618,7 @@ ShinySession <- R6Class(
         return(httpResponse(400, 'text/html', '<h1>Bad Request</h1>'))
 
       if (matches[2] == 'file') {
-        savedFile <- files$get(utils::URLdecode(matches[3]))
+        savedFile <- files$get(URLdecode(matches[3]))
         if (is.null(savedFile))
           return(httpResponse(404, 'text/html', '<h1>Not Found</h1>'))
 
@@ -616,7 +673,7 @@ ShinySession <- R6Class(
         dlmatches <- regmatches(matches[3],
                                 regexec("^([^/]+)(/[^/]+)?$",
                                         matches[3]))[[1]]
-        dlname <- utils::URLdecode(dlmatches[2])
+        dlname <- URLdecode(dlmatches[2])
         download <- downloads$get(dlname)
         if (is.null(download))
           return(httpResponse(404, 'text/html', '<h1>Not Found</h1>'))
@@ -634,8 +691,8 @@ ShinySession <- R6Class(
 
           return(httpResponse(302, 'text/html', '<h1>Found</h1>', c(
             'Location' = sprintf('%s/%s',
-                                 utils::URLencode(dlname, TRUE),
-                                 utils::URLencode(filename, TRUE)),
+                                 URLencode(dlname, TRUE),
+                                 URLencode(filename, TRUE)),
             'Cache-Control' = 'no-cache')))
         }
 
@@ -669,7 +726,7 @@ ShinySession <- R6Class(
         dlmatches <- regmatches(matches[3],
                                 regexec("^([^/]+)(/[^/]+)?$",
                                         matches[3]))[[1]]
-        dlname <- utils::URLdecode(dlmatches[2])
+        dlname <- URLdecode(dlmatches[2])
         download <- downloads$get(dlname)
         return(download$filter(download$data, req))
       }

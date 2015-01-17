@@ -120,6 +120,10 @@ p_randomInt <- function(...) {
   withPrivateSeed(randomInt(...))
 }
 
+isWholeNum <- function(x, tol = .Machine$double.eps^0.5) {
+  abs(x - round(x)) < tol
+}
+
 `%OR%` <- function(x, y) {
   if (is.null(x) || isTRUE(is.na(x)))
     y
@@ -496,8 +500,8 @@ parseQueryString <- function(str, nested = FALSE) {
   keys   <- gsub('+', ' ', keys,   fixed = TRUE)
   values <- gsub('+', ' ', values, fixed = TRUE)
 
-  keys   <- vapply(keys,   URLdecode, character(1), USE.NAMES = FALSE)
-  values <- vapply(values, URLdecode, character(1), USE.NAMES = FALSE)
+  keys   <- URLdecode(keys)
+  values <- URLdecode(values)
 
   res <- setNames(as.list(values), keys)
   if (!nested) return(res)
@@ -537,18 +541,27 @@ shinyCallingHandlers <- function(expr) {
 #' @param new Name of replacement function.
 #' @param msg Message to print. If used, this will override the default message.
 #' @param old Name of deprecated function.
+#' @param version The last version of Shiny before the item was deprecated.
+#' @keywords internal
 shinyDeprecated <- function(new=NULL, msg=NULL,
-                            old=as.character(sys.call(sys.parent()))[1L]) {
+                            old=as.character(sys.call(sys.parent()))[1L],
+                            version = NULL) {
 
   if (getOption("shiny.deprecation.messages") %OR% TRUE == FALSE)
     return(invisible())
 
   if (is.null(msg)) {
     msg <- paste(old, "is deprecated.")
-    if (!is.null(new))
+    if (!is.null(new)) {
       msg <- paste(msg, "Please use", new, "instead.",
         "To disable this message, run options(shiny.deprecation.messages=FALSE)")
+    }
   }
+
+  if (!is.null(version)) {
+    msg <- paste0(msg, " (Last used in version ", version, ")")
+  }
+
   # Similar to .Deprecated(), but print a message instead of warning
   message(msg)
 }
@@ -613,7 +626,9 @@ Callbacks <- R6Class(
 # convert a data frame to JSON as required by DataTables request
 dataTablesJSON <- function(data, req) {
   n <- nrow(data)
-  q <- parseQueryString(req$QUERY_STRING, nested = TRUE)
+  # DataTables requests were sent via POST
+  params <- URLdecode(rawToChar(req$rook.input$read()))
+  q <- parseQueryString(params, nested = TRUE)
   ci <- q$search[['caseInsensitive']] == 'true'
 
   # global searching
@@ -669,6 +684,13 @@ dataTablesJSON <- function(data, req) {
   } else fdata <- data
 
   fdata <- unname(as.matrix(fdata))
+  if (is.character(fdata) && q$escape != 'false') {
+    if (q$escape == 'true') fdata <- htmlEscape(fdata) else {
+      k <- as.integer(strsplit(q$escape, ',')[[1]])
+      # use seq_len() in case escape = negative indices, e.g. c(-1, -5)
+      for (j in seq_len(ncol(fdata))[k]) fdata[, j] <- htmlEscape(fdata[, j])
+    }
+  }
   # WAT: toJSON(list(x = matrix(nrow = 0, ncol = 1))) => {"x": } (#299)
   if (nrow(fdata) == 0) fdata <- list()
   # WAT: toJSON(list(x = matrix(1:2))) => {x: [ [1], [2] ]}, however,
@@ -676,12 +698,12 @@ dataTablesJSON <- function(data, req) {
   if (length(fdata) && all(dim(fdata) == 1)) fdata <- list(list(fdata[1, 1]))
 
   res <- toJSON(list(
-    draw = q$draw,
+    draw = as.integer(q$draw),
     recordsTotal = n,
     recordsFiltered = nrow(data),
     data = fdata
   ))
-  httpResponse(200, 'application/json', res)
+  httpResponse(200, 'application/json', enc2utf8(res))
 }
 
 # when both ignore.case and fixed are TRUE, we use grep(ignore.case = FALSE,
@@ -882,7 +904,7 @@ columnToRowData <- function(data) {
 #'   output$plot <- renderPlot({
 #'     validate(
 #'       need(input$in1, 'Check at least one letter!'),
-#'       need(input$in2 == '', 'Please choose a state.')
+#'       need(input$in2 != '', 'Please choose a state.')
 #'     )
 #'     plot(1:10, main = paste(c(input$in1, input$in2), collapse = ', '))
 #'   })
@@ -1046,4 +1068,11 @@ readUTF8 <- function(file) {
 # similarly, try to source() a file with UTF-8
 sourceUTF8 <- function(file, ...) {
   source(file, ..., keep.source = TRUE, encoding = checkEncoding(file))
+}
+
+
+URLdecode <- decodeURIComponent
+URLencode <- function(value, reserved = FALSE) {
+  value <- enc2utf8(value)
+  if (reserved) encodeURIComponent(value) else encodeURI(value)
 }

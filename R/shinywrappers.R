@@ -534,7 +534,9 @@ downloadHandler <- function(filename, content, contentType=NA) {
 #' \code{"AsIs"} (usually returned from \code{\link{I}()}) will be evaluated in
 #' JavaScript. This is useful when the type of the option value is not supported
 #' in JSON, e.g., a JavaScript function, which can be obtained by evaluating a
-#' character string.
+#' character string. Note this only applies to the root-level elements of the
+#' options list, and the \code{I()} notation does not work for lower-level
+#' elements in the list.
 #' @param expr An expression that returns a data frame or a matrix.
 #' @param options A list of initialization options to be passed to DataTables,
 #'   or a function to return such a list.
@@ -543,18 +545,44 @@ downloadHandler <- function(filename, content, contentType=NA) {
 #' @param callback A JavaScript function to be applied to the DataTable object.
 #'   This is useful for DataTables plug-ins, which often require the DataTable
 #'   instance to be available (\url{http://datatables.net/extensions/}).
+#' @param escape Whether to escape HTML entities in the table: \code{TRUE} means
+#'   to escape the whole table, and \code{FALSE} means not to escape it.
+#'   Alternatively, you can specify numeric column indices or column names to
+#'   indicate which columns to escape, e.g. \code{1:5} (the first 5 columns),
+#'   \code{c(1, 3, 4)}, or \code{c(-1, -3)} (all columns except the first and
+#'   third), or \code{c('Species', 'Sepal.Length')}.
 #' @references \url{http://datatables.net}
+#' @note This function only provides the server-side version of DataTables
+#'   (using R to process the data object on the server side). There is a
+#'   separate package \pkg{DT} (\url{https://github.com/rstudio/DT}) that allows
+#'   you to create both server-side and client-side DataTables. We may deprecate
+#'   \code{renderDataTable()} and \code{dataTableOutput()} in the future when
+#'   the \pkg{DT} package is mature enough.
 #' @export
 #' @inheritParams renderPlot
-#' @examples  # pass a callback function to DataTables using I()
-#' renderDataTable(iris,
-#'   options = list(
-#'     pageLength = 5,
-#'     initComplete = I("function(settings, json) {alert('Done.');}")
-#'   )
+#' @examples
+#' \donttest{
+#' # pass a callback function to DataTables using I()
+#' shinyApp(
+#'   ui = fluidPage(
+#'     fluidRow(
+#'       column(12,
+#'         dataTableOutput('table')
+#'       )
+#'     )
+#'   ),
+#'   server = function(input, output) {
+#'     output$table <- renderDataTable(iris,
+#'       options = list(
+#'         pageLength = 5,
+#'         initComplete = I("function(settings, json) {alert('Done.');}")
+#'       )
+#'     )
+#'   }
 #' )
+#' }
 renderDataTable <- function(expr, options = NULL, searchDelay = 500,
-                            callback = 'function(oTable) {}',
+                            callback = 'function(oTable) {}', escape = TRUE,
                             env = parent.frame(), quoted = FALSE) {
   installExprFunction(expr, "func", env, quoted)
 
@@ -564,11 +592,25 @@ renderDataTable <- function(expr, options = NULL, searchDelay = 500,
     res <- checkAsIs(options)
     data <- func()
     if (length(dim(data)) != 2) return() # expects a rectangular data object
+    if (is.data.frame(data)) data <- as.data.frame(data)
     action <- shinysession$registerDataObj(name, data, dataTablesJSON)
+    colnames <- colnames(data)
+    # if escape is column names, turn names to numeric indices
+    if (is.character(escape)) {
+      escape <- setNames(seq_len(ncol(data)), colnames)[escape]
+      if (any(is.na(escape)))
+        stop("Some column names in the 'escape' argument not found in data")
+    }
+    colnames[escape] <- htmlEscape(colnames[escape])
+    if (!is.logical(escape)) {
+      if (!is.numeric(escape))
+        stop("'escape' must be TRUE, FALSE, or a numeric vector, or column names")
+      escape <- paste(escape, collapse = ',')
+    }
     list(
-      colnames = colnames(data), action = action, options = res$options,
+      colnames = colnames, action = action, options = res$options,
       evalOptions = if (length(res$eval)) I(res$eval), searchDelay = searchDelay,
-      callback = paste(callback, collapse = '\n')
+      callback = paste(callback, collapse = '\n'), escape = escape
     )
   })
 }

@@ -11,8 +11,8 @@
 #' @param ... Elements to include within the page
 #' @param title The browser window title (defaults to the host URL of the page).
 #'   Can also be set as a side effect of the \code{\link{titlePanel}} function.
-#' @param responsive \code{TRUE} to use responsive layout (automatically adapt
-#'   and resize page elements based on the size of the viewing device)
+#' @param responsive This option is deprecated; it is no longer optional with
+#'   Bootstrap 3.
 #' @param theme Alternative Bootstrap stylesheet (normally a css file within the
 #'   www directory). For example, to use the theme located at
 #'   \code{www/bootstrap.css} you would use \code{theme = "bootstrap.css"}.
@@ -24,9 +24,8 @@
 #'   alternative to low-level row and column functions you can also use
 #'   higher-level layout functions like \code{\link{sidebarLayout}}.
 #'
-#' @note See the
-#'   \href{https://github.com/rstudio/shiny/wiki/Shiny-Application-Layout-Guide}{
-#'    Shiny-Application-Layout-Guide} for additional details on laying out fluid
+#' @note See the \href{http://shiny.rstudio.com/articles/layout-guide.html}{
+#'   Shiny-Application-Layout-Guide} for additional details on laying out fluid
 #'   pages.
 #'
 #' @seealso \code{\link{column}}, \code{\link{sidebarLayout}}
@@ -69,7 +68,7 @@
 #'
 #' @rdname fluidPage
 #' @export
-fluidPage <- function(..., title = NULL, responsive = TRUE, theme = NULL) {
+fluidPage <- function(..., title = NULL, responsive = NULL, theme = NULL) {
   bootstrapPage(div(class = "container-fluid", ...),
                 title = title,
                 responsive = responsive,
@@ -80,7 +79,7 @@ fluidPage <- function(..., title = NULL, responsive = TRUE, theme = NULL) {
 #' @rdname fluidPage
 #' @export
 fluidRow <- function(...) {
-  div(class = "row-fluid", ...)
+  div(class = "row", ...)
 }
 
 #' Create a page with a fixed layout
@@ -95,8 +94,8 @@ fluidRow <- function(...) {
 #'
 #' @param ... Elements to include within the container
 #' @param title The browser window title (defaults to the host URL of the page)
-#' @param responsive \code{TRUE} to use responsive layout (automatically adapt
-#'   and resize page elements based on the size of the viewing device)
+#' @param responsive This option is deprecated; it is no longer optional with
+#'   Bootstrap 3.
 #' @param theme Alternative Bootstrap stylesheet (normally a css file within the
 #'   www directory). For example, to use the theme located at
 #'   \code{www/bootstrap.css} you would use \code{theme = "bootstrap.css"}.
@@ -109,8 +108,7 @@ fluidRow <- function(...) {
 #'   layout functions like \code{sidebarLayout}, rather, all layout must be done
 #'   with \code{fixedRow} and \code{column}.
 #'
-#' @note See the
-#'   \href{https://github.com/rstudio/shiny/wiki/Shiny-Application-Layout-Guide}{
+#' @note See the \href{http://shiny.rstudio.com/articles/layout-guide.html}{
 #'   Shiny Application Layout Guide} for additional details on laying out fixed
 #'   pages.
 #'
@@ -131,7 +129,7 @@ fluidRow <- function(...) {
 #'
 #' @rdname fixedPage
 #' @export
-fixedPage <- function(..., title = NULL, responsive = TRUE, theme = NULL) {
+fixedPage <- function(..., title = NULL, responsive = NULL, theme = NULL) {
   bootstrapPage(div(class = "container", ...),
                 title = title,
                 responsive = responsive,
@@ -186,9 +184,9 @@ column <- function(width, ..., offset = 0) {
   if (!is.numeric(width) || (width < 1) || (width > 12))
     stop("column width must be between 1 and 12")
 
-  colClass <- paste0("span", width)
+  colClass <- paste0("col-sm-", width)
   if (offset > 0)
-    colClass <- paste0(colClass, " offset", offset)
+    colClass <- paste0(colClass, " col-sm-offset-", offset)
   div(class = colClass, ...)
 }
 
@@ -210,7 +208,7 @@ column <- function(width, ..., offset = 0) {
 titlePanel <- function(title, windowTitle=title) {
   tagList(
     tags$head(tags$title(windowTitle)),
-    h2(style = "padding: 10px 0px;", title)
+    h2(title)
   )
 }
 

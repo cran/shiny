@@ -32,7 +32,7 @@ To install the latest development builds directly from GitHub, run this instead:
 ```r
 if (!require("devtools"))
   install.packages("devtools")
-devtools::install_github("shiny", "rstudio")
+devtools::install_github("rstudio/shiny")
 ```
 
 ## Getting Started
@@ -40,6 +40,22 @@ devtools::install_github("shiny", "rstudio")
 To learn more we highly recommend you check out the [Shiny Tutorial](http://shiny.rstudio.com/tutorial/). The tutorial explains the framework in-depth, walks you through building a simple application, and includes extensive annotated examples.
 
 We hope you enjoy using Shiny. If you have general questions about using Shiny, please use the Shiny [mailing list](https://groups.google.com/forum/#!forum/shiny-discuss). For bug reports, please use the [issue tracker](https://github.com/rstudio/shiny/issues).
+
+## Bootstrap 3 migration
+
+Shiny versions 0.10.2.2 and below used the Bootstrap 2 web framework. After 0.10.2.2, Shiny switched to Bootstrap 3. For most users, the upgrade should be seamless. However, if you have have customized your HTML-generating code to use features specific to Bootstrap 2, you may need to update your code to work with Bootstrap 3.
+
+If you do not wish to update your code at this time, you can use the [shinybootstrap2](https://github.com/rstudio/shinybootstrap2) package for backward compatibility.
+
+If you prefer to install an older version of Shiny, you can do it using the devtools package:
+
+```R
+devtools::install_version("shiny", version = "0.10.2.2")
+```
+
+## Development notes
+
+The Javascript code in Shiny is minified using tools that run on Node.js. See the tools/ directory for more information.
 
 ## License
 

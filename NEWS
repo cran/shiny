@@ -1,3 +1,45 @@
+shiny 0.11
+--------------------------------------------------------------------------------
+
+* Changed sliders from jquery-slider to ion.rangeSlider. These sliders have
+  an improved appearance, support updating more properties from the server,
+  and can be controlled with keyboard input.
+
+* Switched from Bootstrap 2 to Bootstrap 3. For most users, this will work
+  seamlessly, but some users may need to use the shinybootstrap2 package for
+  backward compatibility.
+
+* The UI of a Shiny app can now have a body tag. This is useful for CSS
+  templates that use classes on the body tag.
+
+* `actionButton` and `actionLink` now pass their `...` arguments to the
+  underlying tag function. (#607)
+
+* Added `observeEvent` and `eventReactive` functions for clearer, more concise
+  handling of `actionButton`, plot clicks, and other naturally-imperative
+  inputs.
+
+* Errors that happen in reactives no longer prevent any remaining pending
+  observers from executing. It is also now possible for users to control how
+  errors are handled, with the 'shiny.observer.error' global option. (#603,
+  #604)
+
+* Added an `escape` argument to `renderDataTable()` to escape the HTML entities
+  in the data table for security reasons. This might break tables from previous
+  versions of shiny that use raw HTML in the table content, and the old behavior
+  can be brought back by `escape = FALSE` if you are aware of the security
+  implications. (#627)
+
+* Changed the URI encoding/decoding functions internally to use `encodeURI()`,
+  `encodeURIComponent()`, and `decodeURIComponent()` from the httpuv package
+  instead of `utils::URLencode()` and `utils::URLdecode()`. (#630)
+
+* Shiny's web assets are now minified.
+
+* The default reactive domain is now available in event handler functions. (#669)
+
+* Password input fields can now be used, with `passwordInput()`. (#672)
+
 shiny 0.10.2.2
 --------------------------------------------------------------------------------
 
@@ -50,6 +92,9 @@ shiny 0.10.2
   runtime using `Shiny.renderDependencies()`.
 
 * Fixes to rounding behavior of sliderInput. (#301, #502)
+
+* Updated selectize.js to version 0.11.2. (#596)
+* Added `position` parameter to `navbarPage`.
 
 shiny 0.10.1
 --------------------------------------------------------------------------------
