@@ -155,6 +155,20 @@ dropNullsOrEmpty <- function(x) {
   x[!vapply(x, nullOrEmpty, FUN.VALUE=logical(1))]
 }
 
+# Given a vector/list, return TRUE if any elements are unnamed, FALSE otherwise.
+anyUnnamed <- function(x) {
+  # Zero-length vector
+  if (length(x) == 0) return(FALSE)
+
+  nms <- names(x)
+
+  # List with no name attribute
+  if (is.null(nms)) return(TRUE)
+
+  # List with name attribute; check for any ""
+  any(!nzchar(nms))
+}
+
 # Combine dir and (file)name into a file path. If a file already exists with a
 # name differing only by case, then use it instead.
 file.path.ci <- function(...) {
@@ -446,7 +460,7 @@ installExprFunction <- function(expr, name, eval.env = parent.frame(2),
 
 #' Parse a GET query string from a URL
 #'
-#' Returns a named character vector of key-value pairs.
+#' Returns a named list of key-value pairs.
 #'
 #' @param str The query string. It can have a leading \code{"?"} or not.
 #' @param nested Whether to parse the query string of as a nested list when it

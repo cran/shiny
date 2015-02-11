@@ -4,12 +4,12 @@ NULL
 #' Create a Bootstrap page
 #'
 #' Create a Shiny UI page that loads the CSS and JavaScript for
-#' \href{http://getbootstrap.com/3.3.1/}{Bootstrap}, and has no content in the
-#' page body (other than what you provide).
+#' \href{http://getbootstrap.com/}{Bootstrap}, and has no content in the page
+#' body (other than what you provide).
 #'
-#' This function is primarily intended for users who are proficient in
-#' HTML/CSS, and know how to lay out pages in Bootstrap. Most applications
-#' should use \code{\link{fluidPage}} along with layout functions like
+#' This function is primarily intended for users who are proficient in HTML/CSS,
+#' and know how to lay out pages in Bootstrap. Most applications should use
+#' \code{\link{fluidPage}} along with layout functions like
 #' \code{\link{fluidRow}} and \code{\link{sidebarLayout}}.
 #'
 #' @param ... The contents of the document body.
@@ -147,7 +147,7 @@ pageWithSidebar <- function(headerPanel,
 #'   \code{"fixed-bottom"} will cause the navbar to overlay your body content,
 #'   unless you add padding, e.g.:
 #'   \code{tags$style(type="text/css", "body {padding-top: 70px;}")}
-#' @param header Tag of list of tags to display as a common header above all
+#' @param header Tag or list of tags to display as a common header above all
 #'   tabPanels.
 #' @param footer Tag or list of tags to display as a common footer below all
 #'   tabPanels
@@ -249,10 +249,6 @@ navbarPage <- function(title,
       tabset$navList
     )
   }
-
-  # create a default header if necessary
-  if (length(header) == 0)
-    header <- HTML("&nbsp;")
 
   # function to return plain or fluid class name
   className <- function(name) {
@@ -431,9 +427,9 @@ conditionalPanel <- function(condition, ...) {
 #'
 #' Create an input control for entry of unstructured text values
 #'
-#' @param inputId Input variable to assign the control's value to
-#' @param label Display label for the control
-#' @param value Initial value
+#' @param inputId The \code{input} slot that will be used to access the value.
+#' @param label Display label for the control, or \code{NULL} for no label.
+#' @param value Initial value.
 #' @return A text input control that can be added to a UI definition.
 #'
 #' @family input elements
@@ -473,9 +469,7 @@ passwordInput <- function(inputId, label, value = "") {
 #'
 #' Create an input control for entry of numeric values
 #'
-#' @param inputId Input variable to assign the control's value to
-#' @param label Display label for the control
-#' @param value Initial value
+#' @inheritParams textInput
 #' @param min Minimum allowed value
 #' @param max Maximum allowed value
 #' @param step Interval to use when stepping between min and max
@@ -530,8 +524,7 @@ numericInput <- function(inputId, label, value, min = NA, max = NA, step = NA) {
 #'
 #' @family input elements
 #'
-#' @param inputId Input variable to assign the control's value to.
-#' @param label Display label for the control.
+#' @inheritParams textInput
 #' @param multiple Whether the user should be allowed to select and upload
 #'   multiple files at once. \bold{Does not work on older browsers, including
 #'   Internet Explorer 9 and earlier.}
@@ -562,8 +555,7 @@ fileInput <- function(inputId, label, multiple = FALSE, accept = NULL) {
 #'
 #' Create a checkbox that can be used to specify logical values.
 #'
-#' @param inputId Input variable to assign the control's value to.
-#' @param label Display label for the control.
+#' @inheritParams textInput
 #' @param value Initial value (\code{TRUE} or \code{FALSE}).
 #' @return A checkbox control that can be added to a UI definition.
 #'
@@ -592,8 +584,7 @@ checkboxInput <- function(inputId, label, value = FALSE) {
 #' independently. The server will receive the input as a character vector of the
 #' selected values.
 #'
-#' @param inputId Input variable to assign the control's value to.
-#' @param label Display label for the control, or \code{NULL}.
+#' @inheritParams textInput
 #' @param choices List of values to show checkboxes for. If elements of the list
 #'   are named then that name rather than the value is displayed to the user.
 #' @param selected The values that should be initially selected, if any.
@@ -754,23 +745,27 @@ choicesWithNames <- function(choices) {
 
 #' Create a select list input control
 #'
-#' Create a select list that can be used to choose a single or
-#' multiple items from a list of values.
+#' Create a select list that can be used to choose a single or multiple items
+#' from a list of values.
 #'
 #' By default, \code{selectInput()} and \code{selectizeInput()} use the
-#' JavaScript library \pkg{selectize.js} (\url{https://github.com/brianreavis/selectize.js})
-#' to instead of the basic select input element. To use the standard HTML select
-#' input element, use \code{selectInput()} with \code{selectize=FALSE}.
+#' JavaScript library \pkg{selectize.js}
+#' (\url{https://github.com/brianreavis/selectize.js}) to instead of the basic
+#' select input element. To use the standard HTML select input element, use
+#' \code{selectInput()} with \code{selectize=FALSE}.
 #'
-#' @param inputId Input variable to assign the control's value to
-#' @param label Display label for the control, or \code{NULL}
+#' @inheritParams textInput
 #' @param choices List of values to select from. If elements of the list are
-#' named then that name rather than the value is displayed to the user.
+#'   named then that name rather than the value is displayed to the user.
 #' @param selected The initially selected value (or multiple values if
-#' \code{multiple = TRUE}). If not specified then defaults to the first value
-#' for single-select lists and no values for multiple select lists.
+#'   \code{multiple = TRUE}). If not specified then defaults to the first value
+#'   for single-select lists and no values for multiple select lists.
 #' @param multiple Is selection of multiple items allowed?
 #' @param selectize Whether to use \pkg{selectize.js} or not.
+#' @param size Number of items to show in the selection box; a larger number
+#'   will result in a taller box. Not compatible with \code{selectize=TRUE}.
+#'   Normally, when \code{multiple=FALSE}, a select input will be a drop-down
+#'   list, but when \code{size} is set, it will be a box instead.
 #' @return A select list control that can be added to a UI definition.
 #'
 #' @family input elements
@@ -783,7 +778,8 @@ choicesWithNames <- function(choices) {
 #'               "Gears" = "gear"))
 #' @export
 selectInput <- function(inputId, label, choices, selected = NULL,
-                        multiple = FALSE, selectize = TRUE, width = NULL) {
+                        multiple = FALSE, selectize = TRUE, width = NULL,
+                        size = NULL) {
   # resolve names
   choices <- choicesWithNames(choices)
 
@@ -792,21 +788,31 @@ selectInput <- function(inputId, label, choices, selected = NULL,
     if (!multiple) selected <- firstChoice(choices)
   } else selected <- validateSelected(selected, choices, inputId)
 
+  if (!is.null(size) && selectize) {
+    stop("'size' argument is incompatible with 'selectize=TRUE'.")
+  }
+
   # create select tag and add options
-  selectTag <- tags$select(id = inputId, selectOptions(choices, selected))
+  selectTag <- tags$select(
+    id = inputId,
+    class = if (!selectize) "form-control",
+    size = size,
+    selectOptions(choices, selected)
+  )
   if (multiple)
     selectTag$attribs$multiple <- "multiple"
 
   # return label and select tag
   res <- div(
     class = "form-group shiny-input-container",
+    style = if (!is.null(width)) paste0("width: ", validateCssUnit(width)),
     controlLabel(inputId, label),
     div(selectTag)
   )
 
   if (!selectize) return(res)
 
-  selectizeIt(inputId, res, NULL, width, nonempty = !multiple && !("" %in% choices))
+  selectizeIt(inputId, res, NULL, nonempty = !multiple && !("" %in% choices))
 }
 
 firstChoice <- function(choices) {
@@ -865,11 +871,15 @@ needOptgroup <- function(choices) {
 #'   \code{selectInput(..., selectize = FALSE)}.
 #' @export
 selectizeInput <- function(inputId, ..., options = NULL, width = NULL) {
-  selectizeIt(inputId, selectInput(inputId, ..., selectize = FALSE), options, width)
+  selectizeIt(
+    inputId,
+    selectInput(inputId, ..., selectize = FALSE, width = width),
+    options
+  )
 }
 
 # given a select input and its id, selectize it
-selectizeIt <- function(inputId, select, options, width = NULL, nonempty = FALSE) {
+selectizeIt <- function(inputId, select, options, nonempty = FALSE) {
   res <- checkAsIs(options)
 
   selectizeDep <- htmlDependency(
@@ -890,7 +900,6 @@ selectizeIt <- function(inputId, select, options, width = NULL, nonempty = FALSE
       type = 'application/json',
       `data-for` = inputId, `data-nonempty` = if (nonempty) '',
       `data-eval` = if (length(res$eval)) HTML(toJSON(res$eval)),
-      `data-width` = validateCssUnit(width),
       if (length(res$options)) HTML(toJSON(res$options)) else '{}'
     )
   )
@@ -902,8 +911,7 @@ selectizeIt <- function(inputId, select, options, width = NULL, nonempty = FALSE
 #'
 #' Create a set of radio buttons used to select an item from a list.
 #'
-#' @param inputId Input variable to assign the control's value to
-#' @param label Display label for the control, or \code{NULL}
+#' @inheritParams textInput
 #' @param choices List of values to select from (if elements of the list are
 #' named then that name rather than the value is displayed to the user)
 #' @param selected The initially selected value (if not specified then
@@ -1019,10 +1027,7 @@ actionLink <- function(inputId, label, icon = NULL, ...) {
 #'
 #' Constructs a slider widget to select a numeric value from a range.
 #'
-#' @param inputId Specifies the \code{input} slot that will be used to access
-#'   the value.
-#' @param label A descriptive label to be displayed with the widget, or
-#'   \code{NULL}.
+#' @inheritParams textInput
 #' @param min The minimum value (inclusive) that can be selected.
 #' @param max The maximum value (inclusive) that can be selected.
 #' @param value The initial value of the slider. A numeric vector of length
@@ -1118,6 +1123,7 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
   })
 
   sliderTag <- div(class = "form-group shiny-input-container",
+    style = if (!is.null(width)) paste0("width: ", validateCssUnit(width)),
     if (!is.null(label)) controlLabel(inputId, label),
     do.call(tags$input, sliderProps)
   )
@@ -1182,8 +1188,7 @@ datePickerDependency <- htmlDependency(
 #'   \item \code{DD} Full weekday name
 #' }
 #'
-#' @param inputId Input variable to assign the control's value to.
-#' @param label Display label for the control, or \code{NULL}.
+#' @inheritParams textInput
 #' @param value The starting date. Either a Date object, or a string in
 #'   \code{yyyy-mm-dd} format. If NULL (the default), will use the current
 #'   date in the client's time zone.
@@ -1399,7 +1404,7 @@ dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
 #'   )
 #' )
 #' @export
-tabPanel <- function(title, ..., value = NULL, icon = NULL) {
+tabPanel <- function(title, ..., value = title, icon = NULL) {
   divTag <- div(class="tab-pane",
                 title=title,
                 `data-value`=value,
@@ -1571,11 +1576,6 @@ buildTabset <- function(tabs,
     tabId <- tabId + 1
 
     tabValue <- divTag$attribs$`data-value`
-    if (!is.null(tabValue) && is.null(id)) {
-      stop("tabsetPanel doesn't have an id assigned, but one of its tabPanels ",
-           "has a value. The value won't be sent without an id.")
-    }
-
 
     # function to append an optional icon to an aTag
     appendIcon <- function(aTag, iconClass) {
@@ -1729,7 +1729,9 @@ imageOutput <- function(outputId, width = "100%", height="400px", inline=FALSE) 
 #'   \code{"100\%"}, \code{"400px"}, \code{"auto"}) or a number, which will be
 #'   coerced to a string and have \code{"px"} appended. These two arguments are
 #'   ignored when \code{inline = TRUE}, in which case the width/height of a plot
-#'   must be specified in \code{renderPlot()}.
+#'   must be specified in \code{renderPlot()}. Note that, for height, using
+#'   \code{"auto"} or \code{"100\%"} generally will not work as expected, because
+#'   of how height is computed with HTML/CSS.
 #' @param clickId If not \code{NULL}, the plot will send coordinates to the
 #'   server whenever it is clicked. This information will be accessible on the
 #'   \code{input} object using \code{input$}\emph{\code{clickId}}. The value
@@ -1794,35 +1796,36 @@ plotOutput <- function(outputId, width = "100%", height="400px",
 #'
 #' @seealso \code{\link{renderTable}}, \code{\link{renderDataTable}}.
 #' @examples
-#' \donttest{
-#' # table example
-#' shinyApp(
-#'   ui = fluidPage(
-#'     fluidRow(
-#'       column(12,
-#'         tableOutput('table')
+#' ## Only run this example in interactive R sessions
+#' if (interactive()) {
+#'   # table example
+#'   shinyApp(
+#'     ui = fluidPage(
+#'       fluidRow(
+#'         column(12,
+#'           tableOutput('table')
+#'         )
 #'       )
-#'     )
-#'   ),
-#'   server = function(input, output) {
-#'     output$table <- renderTable(iris)
-#'   }
-#' )
+#'     ),
+#'     server = function(input, output) {
+#'       output$table <- renderTable(iris)
+#'     }
+#'   )
 #'
 #'
-#' # DataTables example
-#' shinyApp(
-#'   ui = fluidPage(
-#'     fluidRow(
-#'       column(12,
-#'         dataTableOutput('table')
+#'   # DataTables example
+#'   shinyApp(
+#'     ui = fluidPage(
+#'       fluidRow(
+#'         column(12,
+#'           dataTableOutput('table')
+#'         )
 #'       )
-#'     )
-#'   ),
-#'   server = function(input, output) {
-#'     output$table <- renderDataTable(iris)
-#'   }
-#' )
+#'     ),
+#'     server = function(input, output) {
+#'       output$table <- renderDataTable(iris)
+#'     }
+#'   )
 #' }
 #' @export
 tableOutput <- function(outputId) {
@@ -1856,18 +1859,29 @@ dataTableOutput <- function(outputId) {
 #' text will be included within an HTML \code{div} tag, and is presumed to
 #' contain HTML content which should not be escaped.
 #'
-#' \code{uiOutput} is intended to be used with \code{renderUI} on the
-#' server side. It is currently just an alias for \code{htmlOutput}.
+#' \code{uiOutput} is intended to be used with \code{renderUI} on the server
+#' side. It is currently just an alias for \code{htmlOutput}.
 #'
 #' @param outputId output variable to read the value from
+#' @param ... Other arguments to pass to the container tag function. This is
+#'   useful for providing additional classes for the tag.
 #' @inheritParams textOutput
 #' @return An HTML output element that can be included in a panel
 #' @examples
 #' htmlOutput("summary")
+#'
+#' # Using a custom container and class
+#' tags$ul(
+#'   htmlOutput("summary", container = tags$li, class = "custom-li-output")
+#' )
 #' @export
-htmlOutput <- function(outputId, inline = FALSE) {
-  container <- if (inline) span else div
-  container(id = outputId, class="shiny-html-output")
+htmlOutput <- function(outputId, inline = FALSE,
+  container = if (inline) span else div, ...)
+{
+  if (anyUnnamed(list(...))) {
+    warning("Unnamed elements in ... will be replaced with dynamic UI.")
+  }
+  container(id = outputId, class="shiny-html-output", ...)
 }
 
 #' @rdname htmlOutput
