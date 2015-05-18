@@ -403,10 +403,10 @@ updateRadioButtons <- function(session, inputId, label = NULL, choices = NULL,
 #' @export
 updateSelectInput <- function(session, inputId, label = NULL, choices = NULL,
                               selected = NULL) {
-  choices <- choicesWithNames(choices)
+  choices <- if (!is.null(choices)) choicesWithNames(choices)
   if (!is.null(selected))
     selected <- validateSelected(selected, choices, inputId)
-  options <- if (length(choices)) selectOptions(choices, selected)
+  options <- if (!is.null(choices)) selectOptions(choices, selected)
   message <- dropNulls(list(label = label, options = options, value = selected))
   session$sendInputMessage(inputId, message)
 }
@@ -434,9 +434,6 @@ updateSelectizeInput <- function(session, inputId, label = NULL, choices = NULL,
   if (!server) {
     return(updateSelectInput(session, inputId, label, choices, selected))
   }
-  # in the server mode, the choices are not available before we type, so we
-  # cannot really pre-select any options, but here we insert the `selected`
-  # options into selectize forcibly
   value <- unname(selected)
   selected <- choicesWithNames(selected)
   message <- dropNulls(list(
@@ -453,7 +450,7 @@ updateSelectizeInput <- function(session, inputId, label = NULL, choices = NULL,
 selectizeJSON <- function(data, req) {
   query <- parseQueryString(req$QUERY_STRING)
   # extract the query variables, conjunction (and/or), search string, maximum options
-  var <- unlist(fromJSON(query$field, asText = TRUE))
+  var <- unlist(jsonlite::fromJSON(query$field))
   cjn <- if (query$conju == 'and') all else any
   # all keywords in lower-case, for case-insensitive matching
   key <- unique(strsplit(tolower(query$query), '\\s+')[[1]])
@@ -481,7 +478,7 @@ selectizeJSON <- function(data, req) {
     idx <- idx | apply(matches, 1, cjn)
   }
   # only return the first n rows (n = maximum options in configuration)
-  idx <- head(which(idx), mop)
+  idx <- head(if (length(key)) which(idx) else seq_along(idx), mop)
   data <- data[idx, ]
 
   res <- toJSON(columnToRowData(data))

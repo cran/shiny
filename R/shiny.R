@@ -18,7 +18,6 @@ NULL
 #' @aliases shiny
 #' @docType package
 #' @import htmltools httpuv xtable digest R6 mime
-#' @importFrom RJSONIO fromJSON
 NULL
 
 
@@ -30,6 +29,8 @@ NULL
 #' \describe{
 #'   \item{shiny.launch.browser}{A boolean which controls the default behavior
 #'     when an app is run. See \code{\link{runApp}} for more information.}
+#'   \item{shiny.port}{A port number that Shiny will listen on. See
+#'     \code{\link{runApp}} for more information.}
 #'   \item{shiny.trace}{If \code{TRUE}, all of the messages sent between the R
 #'     server and the web browser client will be printed on the console. This
 #'     is useful for debugging.}
@@ -79,8 +80,16 @@ createUniqueId <- function(bytes, prefix = "", suffix = "") {
   })
 }
 
-toJSON <- function(x, ..., digits = getOption("shiny.json.digits", 16)) {
-  RJSONIO::toJSON(x, digits = digits, ...)
+toJSON <- function(x, ...,  dataframe = "columns", null = "null", na = "null",
+  auto_unbox = TRUE, digits = getOption("shiny.json.digits", 16),
+  use_signif = TRUE, force = TRUE, POSIXt = "ISO8601", UTC = TRUE,
+  rownames = FALSE, keep_vec_names = TRUE) {
+
+  # I(x) is so that length-1 atomic vectors get put in [].
+  jsonlite::toJSON(I(x), dataframe = dataframe, null = null, na = na,
+   auto_unbox = auto_unbox, digits = digits, use_signif = use_signif,
+   force = force, POSIXt = POSIXt, UTC = UTC, rownames = rownames,
+   keep_vec_names = keep_vec_names, json_verbatim = TRUE, ...)
 }
 
 # Call the workerId func with no args to get the worker id, and with an arg to
@@ -199,7 +208,7 @@ workerId <- local({
 #' \item{sendCustomMessage(type, message)}{
 #'   Sends a custom message to the web page. \code{type} must be a
 #'   single-element character vector giving the type of message, while
-#'   \code{message} can be any RJSONIO-encodable value. Custom messages
+#'   \code{message} can be any jsonlite-encodable value. Custom messages
 #'   have no meaning to Shiny itself; they are used soley to convey information
 #'   to custom JavaScript logic in the browser. You can do this by adding
 #'   JavaScript code to the browser that calls
@@ -224,23 +233,77 @@ NULL
 #' @include utils.R
 ShinySession <- R6Class(
   'ShinySession',
-  portable = FALSE,
-  class = FALSE,
-  public = list(
-    .websocket = 'ANY',
-    .invalidatedOutputValues = 'Map',
-    .invalidatedOutputErrors = 'Map',
-    .inputMessageQueue = list(),    # A list of inputMessages to send when flushed
-    .outputs = list(),       # Keeps track of all the output observer objects
-    .outputOptions = list(), # Options for each of the output observer objects
-    .progressKeys = 'character',
-    .showcase   = 'ANY',
-    .fileUploadContext = 'FileUploadContext',
+  private = list(
+    # There are some private items with a leading "."; except for the dot, these
+    # items share a name with a public item.
+    websocket = 'ANY',
+    invalidatedOutputValues = 'Map',
+    invalidatedOutputErrors = 'Map',
+    inputMessageQueue = list(), # A list of inputMessages to send when flushed
+    .outputs = list(),          # Keeps track of all the output observer objects
+    .outputOptions = list(),     # Options for each of the output observer objects
+    progressKeys = 'character',
+    showcase   = 'ANY',
+    fileUploadContext = 'FileUploadContext',
     .input      = 'ANY', # Internal ReactiveValues object for normal input sent from client
     .clientData = 'ANY', # Internal ReactiveValues object for other data sent from the client
-    .closedCallbacks = 'Callbacks',
-    .flushCallbacks = 'Callbacks',
-    .flushedCallbacks = 'Callbacks',
+    closedCallbacks = 'Callbacks',
+    flushCallbacks = 'Callbacks',
+    flushedCallbacks = 'Callbacks',
+    inputReceivedCallbacks = 'Callbacks',
+    sendResponse = function(requestMsg, value) {
+      if (is.null(requestMsg$tag)) {
+        warning("Tried to send response for untagged message; method: ",
+                requestMsg$method)
+        return()
+      }
+      private$write(toJSON(list(response=list(tag=requestMsg$tag, value=value))))
+    },
+    sendErrorResponse = function(requestMsg, error) {
+      if (is.null(requestMsg$tag))
+        return()
+      private$write(toJSON(list(response=list(tag=requestMsg$tag, error=error))))
+    },
+    write = function(json) {
+      if (self$closed){
+        return()
+      }
+      if (isTRUE(getOption('shiny.trace')))
+        message('SEND ',
+           gsub('(?m)base64,[a-zA-Z0-9+/=]+','[base64 data]',json,perl=TRUE))
+      # first convert to native encoding, then to UTF8, otherwise we may get the
+      # error in Chrome "WebSocket connection failed: Could not decode a text
+      # frame as UTF-8"
+      json <- enc2utf8(enc2native(json))
+      private$websocket$send(json)
+    },
+    getOutputOption = function(outputName, propertyName, defaultValue) {
+      opts <- private$.outputOptions[[outputName]]
+      if (is.null(opts))
+        return(defaultValue)
+      result <- opts[[propertyName]]
+      if (is.null(result))
+        return(defaultValue)
+      return(result)
+    },
+    shouldSuspend = function(name) {
+      # Find corresponding hidden state clientData variable, with the format
+      # "output_foo_hidden". (It comes from .clientdata_output_foo_hidden
+      # on the JS side)
+      # Some tricky stuff: instead of accessing names using input$names(),
+      # get the names directly via input$.values, to avoid triggering reactivity.
+      # Need to handle cases where the output object isn't actually used
+      # in the web page; in these cases, there's no output_foo_hidden flag,
+      # and hidden should be TRUE. In other words, NULL and TRUE should map to
+      # TRUE, FALSE should map to FALSE.
+      hidden <- private$.clientData$.values[[paste("output_", name, "_hidden",
+                                           sep="")]]
+      if (is.null(hidden)) hidden <- TRUE
+
+      return(hidden && private$getOutputOption(name, 'suspendWhenHidden', TRUE))
+    }
+  ),
+  public = list(
     progressStack = 'Stack', # Stack of progress objects
     input       = 'reactivevalues', # Externally-usable S3 wrapper object for .input
     output      = 'ANY',    # Externally-usable S3 wrapper object for .outputs
@@ -249,72 +312,56 @@ ShinySession <- R6Class(
     files = 'Map',        # For keeping track of files sent to client
     downloads = 'Map',
     closed = logical(0),
-    session = 'environment',      # Object for the server app to access session stuff
+    request = 'ANY',      # Websocket request object
     singletons = character(0),  # Tracks singleton HTML fragments sent to the page
+    user = NULL,
+    groups = NULL,
 
     initialize = function(websocket) {
-      .websocket <<- websocket
-      closed <<- FALSE
+      private$websocket <- websocket
+      self$closed <- FALSE
       # TODO: Put file upload context in user/app-specific dir if possible
 
-      .invalidatedOutputValues <<- Map$new()
-      .invalidatedOutputErrors <<- Map$new()
-      .fileUploadContext <<- FileUploadContext$new()
-      .closedCallbacks <<- Callbacks$new()
-      .flushCallbacks <<- Callbacks$new()
-      .flushedCallbacks <<- Callbacks$new()
-      .input      <<- ReactiveValues$new()
-      .clientData <<- ReactiveValues$new()
-      progressStack <<- Stack$new()
-      files <<- Map$new()
-      downloads <<- Map$new()
+      private$invalidatedOutputValues <- Map$new()
+      private$invalidatedOutputErrors <- Map$new()
+      private$fileUploadContext <- FileUploadContext$new()
+      private$closedCallbacks <- Callbacks$new()
+      private$flushCallbacks <- Callbacks$new()
+      private$flushedCallbacks <- Callbacks$new()
+      private$inputReceivedCallbacks <- Callbacks$new()
+      private$.input      <- ReactiveValues$new()
+      private$.clientData <- ReactiveValues$new()
+      self$progressStack <- Stack$new()
+      self$files <- Map$new()
+      self$downloads <- Map$new()
 
-      input      <<- .createReactiveValues(.input,      readonly=TRUE)
-      .setLabel(input, 'input')
-      clientData <<- .createReactiveValues(.clientData, readonly=TRUE)
-      .setLabel(clientData, 'clientData')
+      self$input <- .createReactiveValues(private$.input, readonly=TRUE)
+      .setLabel(self$input, 'input')
+      self$clientData <- .createReactiveValues(private$.clientData, readonly=TRUE)
+      .setLabel(self$clientData, 'clientData')
 
-      output     <<- .createOutputWriter(self)
+      self$output <- .createOutputWriter(self)
 
-      token <<- createUniqueId(16)
-      .outputs <<- list()
-      .outputOptions <<- list()
-
-      session <<- new.env(parent=emptyenv())
-      session$clientData        <<- clientData
-      session$sendCustomMessage <<- self$.sendCustomMessage
-      session$sendInputMessage  <<- self$.sendInputMessage
-      session$unhandledError    <<- self$unhandledError
-      session$close             <<- self$close
-      session$onSessionEnded    <<- self$onSessionEnded
-      session$onEnded           <<- self$onEnded
-      session$onFlush           <<- self$onFlush
-      session$onFlushed         <<- self$onFlushed
-      session$isClosed          <<- self$isClosed
-      session$input             <<- self$input
-      session$output            <<- self$output
-      session$reactlog          <<- self$reactlog
-      session$registerDataObj   <<- self$registerDataObj
-      session$progressStack     <<- self$progressStack
-      session$sendProgress      <<- self$sendProgress
-      session$.impl             <<- self
+      self$token <- createUniqueId(16)
+      private$.outputs <- list()
+      private$.outputOptions <- list()
 
       if (!is.null(websocket$request$HTTP_SHINY_SERVER_CREDENTIALS)) {
         try({
-          creds <- fromJSON(websocket$request$HTTP_SHINY_SERVER_CREDENTIALS)
-          session$user <<- creds$user
-          session$groups <<- creds$groups
+          creds <- jsonlite::fromJSON(websocket$request$HTTP_SHINY_SERVER_CREDENTIALS)
+          self$user <- creds$user
+          self$groups <- creds$groups
         }, silent=FALSE)
       }
 
       # session$request should throw an error if httpuv doesn't have
       # websocket$request, but don't throw it until a caller actually
       # tries to access session$request
-      delayedAssign('request', websocket$request, assign.env = session)
+      delayedAssign('request', websocket$request, assign.env = self)
 
-      .write(toJSON(list(config = list(
+      private$write(toJSON(list(config = list(
         workerId = workerId(),
-        sessionId = token
+        sessionId = self$token
       ))))
     },
     onSessionEnded = function(callback) {
@@ -322,26 +369,31 @@ ShinySession <- R6Class(
       (i.e. the connection to the client has been severed). The return value
       is a function which unregisters the callback. If multiple callbacks are
       registered, the order in which they are invoked is not guaranteed."
-      return(.closedCallbacks$register(callback))
+      return(private$closedCallbacks$register(callback))
     },
     onEnded = function(callback) {
       "Synonym for onSessionEnded"
-      return(onSessionEnded(callback))
+      return(self$onSessionEnded(callback))
+    },
+    onInputReceived = function(callback) {
+      "Registers the given callback to be invoked when the session receives
+      new data from the client."
+      return(private$inputReceivedCallbacks$register(callback))
     },
     unhandledError = function(e) {
-      close()
+      self$close()
     },
     close = function() {
-      if (!closed) {
-        .websocket$close()
+      if (!self$closed) {
+        private$websocket$close()
       }
     },
     wsClosed = function() {
-      closed <<- TRUE
-      for (output in .outputs) {
+      self$closed <- TRUE
+      for (output in private$.outputs) {
         output$suspend()
       }
-      .closedCallbacks$invoke(onError=function(e) {
+      private$closedCallbacks$invoke(onError=function(e) {
         warning(simpleWarning(
           paste("An error occurred in an onSessionEnded handler:",
                 e$message),
@@ -355,13 +407,13 @@ ShinySession <- R6Class(
       })
     },
     isClosed = function() {
-      return(closed)
+      return(self$closed)
     },
     isEnded = function() {
-      return(isClosed())
+      return(self$isClosed())
     },
     setShowcase = function(value) {
-      .showcase <<- !is.null(value) && as.logical(value)
+      private$showcase <- !is.null(value) && as.logical(value)
     },
     defineOutput = function(name, func, label) {
       "Binds an output generating function to this name. The function can either
@@ -374,8 +426,8 @@ ShinySession <- R6Class(
       force(name)
 
       # If overwriting an output object, suspend the previous copy of it
-      if (!is.null(.outputs[[name]])) {
-        .outputs[[name]]$suspend()
+      if (!is.null(private$.outputs[[name]])) {
+        private$.outputs[[name]]$suspend()
       }
 
       if (is.function(func)) {
@@ -416,29 +468,29 @@ ShinySession <- R6Class(
             silent=FALSE
           )
 
-          .invalidatedOutputErrors$remove(name)
-          .invalidatedOutputValues$remove(name)
+          private$invalidatedOutputErrors$remove(name)
+          private$invalidatedOutputValues$remove(name)
 
           if (inherits(value, 'try-error')) {
             cond <- attr(value, 'condition')
             type <- setdiff(class(cond), c('simpleError', 'error', 'condition'))
-            .invalidatedOutputErrors$set(
+            private$invalidatedOutputErrors$set(
               name,
               list(message = cond$message,
                    call = capture.output(print(cond$call)),
                    type = if (length(type)) type))
           }
           else
-            .invalidatedOutputValues$set(name, value)
-        }, suspended=.shouldSuspend(name), label=label)
+            private$invalidatedOutputValues$set(name, value)
+        }, suspended=private$shouldSuspend(name), label=label)
 
         obs$onInvalidate(function() {
-          showProgress(name)
+          self$showProgress(name)
         })
 
-        .outputs[[name]] <<- obs
-        if (is.null(.outputOptions[[name]]))
-          .outputOptions[[name]] <<- list()
+        private$.outputs[[name]] <- obs
+        if (is.null(private$.outputOptions[[name]]))
+          private$.outputOptions[[name]] <- list()
       }
       else {
         stop(paste("Unexpected", class(func), "output for", name))
@@ -446,30 +498,30 @@ ShinySession <- R6Class(
     },
     flushOutput = function() {
 
-      .flushCallbacks$invoke()
-      on.exit(.flushedCallbacks$invoke())
+      private$flushCallbacks$invoke()
+      on.exit(private$flushedCallbacks$invoke())
 
-      if (length(.progressKeys) == 0
-          && length(.invalidatedOutputValues) == 0
-          && length(.invalidatedOutputErrors) == 0
-          && length(.inputMessageQueue) == 0) {
+      if (length(private$progressKeys) == 0
+          && length(private$invalidatedOutputValues) == 0
+          && length(private$invalidatedOutputErrors) == 0
+          && length(private$inputMessageQueue) == 0) {
         return(invisible())
       }
 
-      .progressKeys <<- character(0)
+      private$progressKeys <- character(0)
 
-      values <- .invalidatedOutputValues
-      .invalidatedOutputValues <<- Map$new()
-      errors <- .invalidatedOutputErrors
-      .invalidatedOutputErrors <<- Map$new()
-      inputMessages <- .inputMessageQueue
-      .inputMessageQueue <<- list()
+      values <- private$invalidatedOutputValues
+      private$invalidatedOutputValues <- Map$new()
+      errors <- private$invalidatedOutputErrors
+      private$invalidatedOutputErrors <- Map$new()
+      inputMessages <- private$inputMessageQueue
+      private$inputMessageQueue <- list()
 
       json <- toJSON(list(errors=as.list(errors),
                           values=as.list(values),
                           inputMessages=inputMessages))
 
-      .write(json)
+      private$write(json)
     },
     showProgress = function(id) {
       'Send a message to the client that recalculation of the output identified
@@ -479,21 +531,21 @@ ShinySession <- R6Class(
 
       # If app is already closed, be sure not to show progress, otherwise we
       # will get an error because of the closed websocket
-      if (closed)
+      if (self$closed)
         return()
 
-      if (id %in% .progressKeys)
+      if (id %in% private$progressKeys)
         return()
 
-      .progressKeys <<- c(.progressKeys, id)
+      private$progressKeys <- c(private$progressKeys, id)
 
-      sendProgress('binding', list(id = id))
+      self$sendProgress('binding', list(id = id))
     },
     sendProgress = function(type, message) {
       json <- toJSON(list(
         progress = list(type = type, message = message)
       ))
-      .write(json)
+      private$write(json)
     },
     dispatch = function(msg) {
       method <- paste('@', msg$method, sep='')
@@ -501,47 +553,34 @@ ShinySession <- R6Class(
       # https://github.com/rstudio/shiny/issues/274
       func <- try(do.call(`$`, list(self, method)), silent=TRUE)
       if (inherits(func, 'try-error')) {
-        .sendErrorResponse(msg, paste('Unknown method', msg$method))
+        private$sendErrorResponse(msg, paste('Unknown method', msg$method))
       }
 
       value <- try(do.call(func, as.list(append(msg$args, msg$blobs))),
                    silent=TRUE)
       if (inherits(value, 'try-error')) {
-        .sendErrorResponse(msg, conditionMessage(attr(value, 'condition')))
+        private$sendErrorResponse(msg, conditionMessage(attr(value, 'condition')))
       }
       else {
-        .sendResponse(msg, value)
+        private$sendResponse(msg, value)
       }
     },
-    .sendResponse = function(requestMsg, value) {
-      if (is.null(requestMsg$tag)) {
-        warning("Tried to send response for untagged message; method: ",
-                requestMsg$method)
-        return()
-      }
-      .write(toJSON(list(response=list(tag=requestMsg$tag, value=value))))
-    },
-    .sendErrorResponse = function(requestMsg, error) {
-      if (is.null(requestMsg$tag))
-        return()
-      .write(toJSON(list(response=list(tag=requestMsg$tag, error=error))))
-    },
-    .sendCustomMessage = function(type, message) {
+    sendCustomMessage = function(type, message) {
       data <- list()
       data[[type]] <- message
-      .write(toJSON(list(custom=data)))
+      private$write(toJSON(list(custom=data)))
     },
-    .sendInputMessage = function(inputId, message) {
+    sendInputMessage = function(inputId, message) {
       data <- list(id = inputId, message = message)
 
       # Add to input message queue
-      .inputMessageQueue[[length(.inputMessageQueue) + 1]] <<- data
+      private$inputMessageQueue[[length(private$inputMessageQueue) + 1]] <- data
     },
     onFlush = function(func, once = TRUE) {
       if (!isTRUE(once)) {
-        return(.flushCallbacks$register(func))
+        return(private$flushCallbacks$register(func))
       } else {
-        dereg <- .flushCallbacks$register(function() {
+        dereg <- private$flushCallbacks$register(function() {
           dereg()
           func()
         })
@@ -550,9 +589,9 @@ ShinySession <- R6Class(
     },
     onFlushed = function(func, once = TRUE) {
       if (!isTRUE(once)) {
-        return(.flushedCallbacks$register(func))
+        return(private$flushedCallbacks$register(func))
       } else {
-        dereg <- .flushedCallbacks$register(function() {
+        dereg <- private$flushedCallbacks$register(function() {
           dereg()
           func()
         })
@@ -560,21 +599,8 @@ ShinySession <- R6Class(
       }
     },
     reactlog = function(logEntry) {
-      if (.showcase)
-        .sendCustomMessage("reactlog", logEntry)
-    },
-    .write = function(json) {
-      if (closed){
-        return()
-      }
-      if (isTRUE(getOption('shiny.trace')))
-        message('SEND ',
-           gsub('(?m)base64,[a-zA-Z0-9+/=]+','[base64 data]',json,perl=TRUE))
-      # first convert to native encoding, then to UTF8, otherwise we may get the
-      # error in Chrome "WebSocket connection failed: Could not decode a text
-      # frame as UTF-8"
-      json <- enc2utf8(enc2native(json))
-      .websocket$send(json)
+      if (private$showcase)
+        self$sendCustomMessage("reactlog", logEntry)
     },
 
     # Public RPC methods
@@ -585,7 +611,7 @@ ShinySession <- R6Class(
       maxSize <- getOption('shiny.maxRequestSize', 5 * 1024 * 1024)
       fileInfos <- lapply(fileInfos, function(fi) {
         if (is.null(fi$type))
-          fi$type <- getContentType(tools::file_ext(fi$name))
+          fi$type <- getContentType(fi$name)
         fi
       })
       sizes <- sapply(fileInfos, function(fi){ fi$size })
@@ -593,15 +619,15 @@ ShinySession <- R6Class(
         stop("Maximum upload size exceeded")
       }
 
-      jobId <- .fileUploadContext$createUploadOperation(fileInfos)
+      jobId <- private$fileUploadContext$createUploadOperation(fileInfos)
       return(list(jobId=jobId,
-                  uploadUrl=paste('session', token, 'upload',
+                  uploadUrl=paste('session', self$token, 'upload',
                                   paste(jobId, "?w=", workerId(), sep=""),
                                   sep='/')))
     },
     `@uploadEnd` = function(jobId, inputId) {
-      fileData <- .fileUploadContext$getUploadOperation(jobId)$finish()
-      .input$set(inputId, fileData)
+      fileData <- private$fileUploadContext$getUploadOperation(jobId)$finish()
+      private$.input$set(inputId, fileData)
       invisible()
     },
     # Provides a mechanism for handling direct HTTP requests that are posted
@@ -618,7 +644,7 @@ ShinySession <- R6Class(
         return(httpResponse(400, 'text/html', '<h1>Bad Request</h1>'))
 
       if (matches[2] == 'file') {
-        savedFile <- files$get(URLdecode(matches[3]))
+        savedFile <- self$files$get(URLdecode(matches[3]))
         if (is.null(savedFile))
           return(httpResponse(404, 'text/html', '<h1>Not Found</h1>'))
 
@@ -626,7 +652,7 @@ ShinySession <- R6Class(
       }
 
       if (matches[2] == 'upload' && identical(req$REQUEST_METHOD, "POST")) {
-        job <- .fileUploadContext$getUploadOperation(matches[3])
+        job <- private$fileUploadContext$getUploadOperation(matches[3])
         if (!is.null(job)) {
           fileName <- req$HTTP_SHINY_FILE_NAME
           fileType <- req$HTTP_SHINY_FILE_TYPE
@@ -646,7 +672,7 @@ ShinySession <- R6Class(
       if (matches[2] == 'uploadie' && identical(req$REQUEST_METHOD, "POST")) {
         id <- URLdecode(matches[3])
         res <- mime::parse_multipart(req)
-        .input$set(id, res[[id]])
+        private$.input$set(id, res[[id]])
         return(httpResponse(200, 'text/plain', 'OK'))
       }
 
@@ -674,7 +700,7 @@ ShinySession <- R6Class(
                                 regexec("^([^/]+)(/[^/]+)?$",
                                         matches[3]))[[1]]
         dlname <- URLdecode(dlmatches[2])
-        download <- downloads$get(dlname)
+        download <- self$downloads$get(dlname)
         if (is.null(download))
           return(httpResponse(404, 'text/html', '<h1>Not Found</h1>'))
 
@@ -710,12 +736,12 @@ ShinySession <- R6Class(
         ))
         if (inherits(result, 'try-error')) {
           unlink(tmpdata)
-          return(httpResponse(500, 'text/plain',
-                              attr(result, 'condition')$message))
+          return(httpResponse(500, 'text/plain; charset=UTF-8',
+                              enc2utf8(attr(result, 'condition')$message)))
         }
         return(httpResponse(
           200,
-          download$contentType %OR% getContentType(tools::file_ext(filename)),
+          download$contentType %OR% getContentType(filename),
           # owned=TRUE means tmpdata will be deleted after response completes
           list(file=tmpdata, owned=TRUE),
           c(
@@ -735,7 +761,7 @@ ShinySession <- R6Class(
                                 regexec("^([^/]+)(/[^/]+)?$",
                                         matches[3]))[[1]]
         dlname <- URLdecode(dlmatches[2])
-        download <- downloads$get(dlname)
+        download <- self$downloads$get(dlname)
         return(download$filter(download$data, req))
       }
 
@@ -744,9 +770,9 @@ ShinySession <- R6Class(
     saveFileUrl = function(name, data, contentType, extra=list()) {
       "Creates an entry in the file map for the data, and returns a URL pointing
       to the file."
-      files$set(name, list(data=data, contentType=contentType))
+      self$files$set(name, list(data=data, contentType=contentType))
       return(sprintf('session/%s/file/%s?w=%s&r=%s',
-                     URLencode(token, TRUE),
+                     URLencode(self$token, TRUE),
                      URLencode(name, TRUE),
                      workerId(),
                      createUniqueId(8)))
@@ -762,96 +788,74 @@ ShinySession <- R6Class(
 
       fileData <- readBin(file, 'raw', n=bytes)
 
-      if (isTRUE(.clientData$.values$allowDataUriScheme)) {
+      if (isTRUE(private$.clientData$.values$allowDataUriScheme)) {
         b64 <- rawToBase64(fileData)
         return(paste('data:', contentType, ';base64,', b64, sep=''))
       } else {
-        return(saveFileUrl(name, fileData, contentType))
+        return(self$saveFileUrl(name, fileData, contentType))
       }
     },
     registerDownload = function(name, filename, contentType, func) {
 
-      downloads$set(name, list(filename = filename,
+      self$downloads$set(name, list(filename = filename,
                                contentType = contentType,
                                func = func))
       return(sprintf('session/%s/download/%s?w=%s',
-                     URLencode(token, TRUE),
+                     URLencode(self$token, TRUE),
                      URLencode(name, TRUE),
                      workerId()))
     },
     # register a data object on the server side (for datatable or selectize, etc)
     registerDataObj = function(name, data, filterFunc) {
       # abusing downloads at the moment
-      downloads$set(name, list(data = data, filter = filterFunc))
+      self$downloads$set(name, list(data = data, filter = filterFunc))
       return(sprintf('session/%s/dataobj/%s?w=%s',
-                     URLencode(token, TRUE),
+                     URLencode(self$token, TRUE),
                      URLencode(name, TRUE),
                      workerId()))
-    },
-    .getOutputOption = function(outputName, propertyName, defaultValue) {
-      opts <- .outputOptions[[outputName]]
-      if (is.null(opts))
-        return(defaultValue)
-      result <- opts[[propertyName]]
-      if (is.null(result))
-        return(defaultValue)
-      return(result)
-    },
-    .shouldSuspend = function(name) {
-      # Find corresponding hidden state clientData variable, with the format
-      # "output_foo_hidden". (It comes from .clientdata_output_foo_hidden
-      # on the JS side)
-      # Some tricky stuff: instead of accessing names using input$names(),
-      # get the names directly via input$.values, to avoid triggering reactivity.
-      # Need to handle cases where the output object isn't actually used
-      # in the web page; in these cases, there's no output_foo_hidden flag,
-      # and hidden should be TRUE. In other words, NULL and TRUE should map to
-      # TRUE, FALSE should map to FALSE.
-      hidden <- .clientData$.values[[paste("output_", name, "_hidden",
-                                           sep="")]]
-      if (is.null(hidden)) hidden <- TRUE
-
-      return(hidden && .getOutputOption(name, 'suspendWhenHidden', TRUE))
     },
     # This function suspends observers for hidden outputs and resumes observers
     # for un-hidden outputs.
     manageHiddenOutputs = function() {
       # Find hidden state for each output, and suspend/resume accordingly
-      for (outputName in names(.outputs)) {
-        if (.shouldSuspend(outputName)) {
-          .outputs[[outputName]]$suspend()
+      for (outputName in names(private$.outputs)) {
+        if (private$shouldSuspend(outputName)) {
+          private$.outputs[[outputName]]$suspend()
         } else {
-          .outputs[[outputName]]$resume()
+          private$.outputs[[outputName]]$resume()
         }
       }
     },
     # Set the normal and client data input variables
     manageInputs = function(data) {
+
+      private$inputReceivedCallbacks$invoke(data)
+
       data_names <- names(data)
 
       # Separate normal input variables from client data input variables
       clientdata_idx <- grepl("^.clientdata_", data_names)
 
       # Set normal (non-clientData) input values
-      .input$mset(data[data_names[!clientdata_idx]])
+      private$.input$mset(data[data_names[!clientdata_idx]])
 
       # Strip off .clientdata_ from clientdata input names, and set values
       input_clientdata <- data[data_names[clientdata_idx]]
       names(input_clientdata) <- sub("^.clientdata_", "",
                                      names(input_clientdata))
-      .clientData$mset(input_clientdata)
+      private$.clientData$mset(input_clientdata)
     },
     outputOptions = function(name, ...) {
       # If no name supplied, return the list of options for all outputs
       if (is.null(name))
-        return(.outputOptions)
-      if (! name %in% names(.outputs))
+        return(private$.outputOptions)
+      if (! name %in% names(private$.outputs))
         stop(name, " is not in list of output objects")
 
       opts <- list(...)
       # If no options are set, return the options for the specified output
       if (length(opts) == 0)
-        return(.outputOptions[[name]])
+        return(private$.outputOptions[[name]])
 
       # Set the appropriate option
       validOpts <- c("suspendWhenHidden", "priority")
@@ -859,19 +863,29 @@ ShinySession <- R6Class(
         if (! optname %in% validOpts)
           stop(optname, " is not a valid option")
 
-        .outputOptions[[name]][[optname]] <<- opts[[optname]]
+        private$.outputOptions[[name]][[optname]] <- opts[[optname]]
       }
 
       # If any changes to suspendWhenHidden, need to re-run manageHiddenOutputs
       if ("suspendWhenHidden" %in% names(opts)) {
-        manageHiddenOutputs()
+        self$manageHiddenOutputs()
       }
 
       if ("priority" %in% names(opts)) {
-        .outputs[[name]]$setPriority(opts[['priority']])
+        private$.outputs[[name]]$setPriority(opts[['priority']])
       }
 
       invisible()
+    }
+  ),
+  active = list(
+    session = function() {
+      shinyDeprecated(
+        msg = paste("Attempted to access deprecated shinysession$session object.",
+                    "Please just access the shinysession object directly."),
+        version = "0.11.1"
+      )
+      self
     }
   )
 )

@@ -9,7 +9,7 @@ inputHandlers <- Map$new()
 #'
 #' Adds an input handler for data of this type. When called, Shiny will use the
 #' function provided to refine the data passed back from the client (after being
-#' deserialized by RJSONIO) before making it available in the \code{input}
+#' deserialized by jsonlite) before making it available in the \code{input}
 #' variable of the \code{server.R} file.
 #'
 #' This function will register the handler for the duration of the R process
@@ -31,7 +31,7 @@ inputHandlers <- Map$new()
 #'   parameters:
 #'    \enumerate{
 #'      \item{The value of this input as provided by the client, deserialized
-#'      using RJSONIO.}
+#'      using jsonlite.}
 #'      \item{The \code{shinysession} in which the input exists.}
 #'      \item{The name of the input.}
 #'    }
@@ -64,7 +64,7 @@ registerInputHandler <- function(type, fun, force=FALSE){
 #' Deregister an Input Handler
 #'
 #' Removes an Input Handler. Rather than using the previously specified handler
-#' for data of this type, the default RJSONIO serialization will be used.
+#' for data of this type, the default jsonlite serialization will be used.
 #'
 #' @param type The type for which handlers should be removed.
 #' @return The handler previously associated with this \code{type}, if one
@@ -257,9 +257,10 @@ decodeMessage <- function(data) {
   }
 
   if (readInt(1) != 0x01020202L) {
-    # use native encoding for the message
-    nativeData <- iconv(rawToChar(data), 'UTF-8')
-    return(fromJSON(nativeData, asText=TRUE, simplify=FALSE))
+    # Treat message as UTF-8
+    charData <- rawToChar(data)
+    Encoding(charData) <- 'UTF-8'
+    return(jsonlite::fromJSON(charData, simplifyVector=FALSE))
   }
 
   i <- 5
@@ -405,9 +406,9 @@ createAppHandlers <- function(httpHandlers, serverFuncSource) {
                 args$clientData <- shinysession$clientData
 
               if ('session' %in% names(formals(serverFunc)))
-                args$session <- shinysession$session
+                args$session <- shinysession
 
-              withReactiveDomain(shinysession$session, {
+              withReactiveDomain(shinysession, {
                 do.call(appvars$server, args)
               })
             })
@@ -560,12 +561,15 @@ serviceApp <- function() {
 #'
 #' @param appDir The directory of the application. Should contain
 #'   \code{server.R}, plus, either \code{ui.R} or a \code{www} directory that
-#'   contains the file \code{index.html}. Defaults to the working directory.
-#'   Instead of a directory, this could be a list with \code{ui} and
-#'   \code{server} components, or a Shiny app object created by
-#'   \code{\link{shinyApp}}.
-#' @param port The TCP port that the application should listen on. Defaults to
-#'   choosing a random port.
+#'   contains the file \code{index.html}. Alternately, instead of
+#'   \code{server.R} and \code{ui.R}, the directory may contain just
+#'   \code{app.R}. Defaults to the working directory. Instead of a directory,
+#'   this could be a list with \code{ui} and \code{server} components, or a
+#'   Shiny app object created by \code{\link{shinyApp}}.
+#' @param port The TCP port that the application should listen on. If the
+#'   \code{port} is not specified, and the \code{shiny.port} option is set (with
+#'   \code{options(shiny.port = XX)}), then that port will be used. Otherwise,
+#'   use a random port.
 #' @param launch.browser If true, the system's default web browser will be
 #'   launched automatically after the app is started. Defaults to true in
 #'   interactive sessions only. This value of this parameter can also be a
@@ -620,7 +624,7 @@ serviceApp <- function() {
 #' }
 #' @export
 runApp <- function(appDir=getwd(),
-                   port=NULL,
+                   port=getOption('shiny.port'),
                    launch.browser=getOption('shiny.launch.browser',
                                             interactive()),
                    host=getOption('shiny.host', '127.0.0.1'),
@@ -715,10 +719,12 @@ runApp <- function(appDir=getwd(),
   }
 
   appParts <- as.shiny.appobj(appDir)
-  if (!is.null(appParts$onStart))
-    appParts$onStart()
+  # Set up the onEnd before we call onStart, so that it gets called even if an
+  # error happens in onStart.
   if (!is.null(appParts$onEnd))
     on.exit(appParts$onEnd(), add = TRUE)
+  if (!is.null(appParts$onStart))
+    appParts$onStart()
 
   server <- startApp(appParts, port, host, quiet)
 
