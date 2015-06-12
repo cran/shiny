@@ -1,10 +1,10 @@
-b4dcae5723cefd68db1c0f550bdfb614 *DESCRIPTION
+36b434f1a4d4728250272e904eab6f54 *DESCRIPTION
 02dbdbd2bd2d76cf4b26134f24a709ed *LICENSE
 33f680e3d9445968b13c40cac89836eb *NAMESPACE
-c86cb66954876c2802a3bd1f958d8798 *NEWS
+d2d2cbe6a5fb46827e640bdd4361ddc8 *NEWS
 c850817e2f243d085be6b3861401a74b *R/app.R
 990e5cf99f1847b50c16f40c0a745077 *R/bootstrap-layout.R
-dfd1361d69b542c0cf88b6e58cfa0857 *R/bootstrap.R
+4ae734dca4c27e20cc98f30931ab6350 *R/bootstrap.R
 d18246ad3e9786fc0a4e7485cbb63eca *R/cache.R
 f17b232e367511bc39982bb3d9f3ef39 *R/fileupload.R
 b3edd134e3395689f36cf683e096fd32 *R/globals.R
@@ -29,7 +29,7 @@ dba25dbccc5d248075ed30893fbea0e9 *R/render-plot.R
 003de1ce975f74d3e65ccd8aa77965d7 *R/server.R
 cc22396c63056eb3cb11dc8568eb6478 *R/shiny.R
 22457e49f5631474d373949c69c1d3a7 *R/shinyui.R
-e637fbf87273f303c520f077d5837640 *R/shinywrappers.R
+ac4b87fcc61d66f81d838b2b16f9bf6c *R/shinywrappers.R
 a229552ebb05e9b885c58f2a285855e2 *R/showcase.R
 5ee10565d5afa60eeb1b28630255c3b5 *R/slider.R
 175d3263ed5066754fb83d0894232c9f *R/stack.R
@@ -215,10 +215,10 @@ bd681a8efd2f45628dddf749426dc633 *inst/www/shared/selectize/js/es5-shim.min.js
 c539894c4785ce273996b9d5376c048e *inst/www/shared/shiny-showcase.css
 1fa4b0932c3138a1fec9b30815926474 *inst/www/shared/shiny-showcase.js
 e9806de66ff7cd1d467398bf4ebe85e2 *inst/www/shared/shiny.css
-7db156fb290f63bab6255859a8dee620 *inst/www/shared/shiny.js
-d691e8715d4c1ff70a3294fef7f98d5c *inst/www/shared/shiny.js.map
-0eba6a949c55ebbb5d9f75ee8544602a *inst/www/shared/shiny.min.js
-5f6f8d14cd383f8758f314b4db7e98e4 *inst/www/shared/shiny.min.js.map
+aecae2e97f5d1cc1affaa8eea133b9e4 *inst/www/shared/shiny.js
+1db89cfe8d167f4b864fb2bd35e34f8a *inst/www/shared/shiny.js.map
+4236fa56750e7fe2944973cc4ccc0e6c *inst/www/shared/shiny.min.js
+8b1f72d0453c7e4923030450a6e3ffe9 *inst/www/shared/shiny.min.js.map
 d42bccda0accb4e937f79e5bd9540643 *inst/www/shared/showdown/compressed/showdown.js
 ae18a8f49f1a446ca1772447b95a99d0 *inst/www/shared/showdown/license.txt
 e192e62c348b4dc09fd3d9f32cd558c3 *inst/www/shared/showdown/src/showdown.js
@@ -291,7 +291,7 @@ dda114654843eab599c4396ec4382a06 *man/reactiveValues.Rd
 137b92302375befe7aa9232dbf4c50c0 *man/reactiveValuesToList.Rd
 d8973d479af4c4e9ce95c4330a9569be *man/registerInputHandler.Rd
 41107ac04dbfdd315773a28fd87bc21f *man/removeInputHandler.Rd
-05ce9bde1c48cdad795a0d90b4e86dcb *man/renderDataTable.Rd
+0e5ea9f0f1c6cce3f558e165e582c2e5 *man/renderDataTable.Rd
 d9eecda1b4f24bf2200fe15010555933 *man/renderImage.Rd
 46f708760c8f38725a2b8732d85da829 *man/renderPlot.Rd
 2222a66db168671107dc08d2af0ec950 *man/renderPrint.Rd
