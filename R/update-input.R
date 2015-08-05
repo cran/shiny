@@ -185,6 +185,13 @@ updateTabsetPanel <- function(session, inputId, selected = NULL) {
   session$sendInputMessage(inputId, message)
 }
 
+#' @rdname updateTabsetPanel
+#' @export
+updateNavbarPage <- updateTabsetPanel
+
+#' @rdname updateTabsetPanel
+#' @export
+updateNavlistPanel <- updateTabsetPanel
 
 #' Change the value of a number input on the client
 #'
@@ -242,9 +249,9 @@ updateNumericInput <- function(session, inputId, label = NULL, value = NULL,
 #'       sidebarLayout(
 #'         sidebarPanel(
 #'           p("The first slider controls the second"),
-#'           slider2Input("control", "Controller:", min=0, max=20, value=10,
+#'           sliderInput("control", "Controller:", min=0, max=20, value=10,
 #'                        step=1),
-#'           slider2Input("receive", "Receiver:", min=0, max=20, value=10,
+#'           sliderInput("receive", "Receiver:", min=0, max=20, value=10,
 #'                        step=1)
 #'         ),
 #'         mainPanel()
@@ -262,7 +269,39 @@ updateNumericInput <- function(session, inputId, label = NULL, value = NULL,
 #'   )
 #' }
 #' @export
-updateSliderInput <- updateNumericInput
+updateSliderInput <- function(session, inputId, label = NULL, value = NULL,
+  min = NULL, max = NULL, step = NULL)
+{
+  # Make sure that value, min, max all have the same type, because we need
+  # special handling for dates and datetimes.
+  vals <- dropNulls(list(value, min, max))
+
+  type <- unique(lapply(vals, function(x) {
+    if      (inherits(x, "Date"))   "date"
+    else if (inherits(x, "POSIXt")) "datetime"
+    else                            "number"
+  }))
+  if (length(type) > 1) {
+    stop("Type mismatch for value, min, and max")
+  }
+
+  if (type == "date" || type == "datetime") {
+    to_ms <- function(x) 1000 * as.numeric(as.POSIXct(x))
+    if (!is.null(min))   min   <- to_ms(min)
+    if (!is.null(max))   max   <- to_ms(max)
+    if (!is.null(value)) value <- to_ms(value)
+  }
+
+  message <- dropNulls(list(
+    label = label,
+    value = formatNoSci(value),
+    min = formatNoSci(min),
+    max = formatNoSci(max),
+    step = formatNoSci(step)
+  ))
+  session$sendInputMessage(inputId, message)
+}
+
 
 updateInputOptions <- function(session, inputId, label = NULL, choices = NULL,
                                selected = NULL, inline = FALSE,
@@ -450,7 +489,7 @@ updateSelectizeInput <- function(session, inputId, label = NULL, choices = NULL,
 selectizeJSON <- function(data, req) {
   query <- parseQueryString(req$QUERY_STRING)
   # extract the query variables, conjunction (and/or), search string, maximum options
-  var <- unlist(jsonlite::fromJSON(query$field))
+  var <- c(jsonlite::fromJSON(query$field))
   cjn <- if (query$conju == 'and') all else any
   # all keywords in lower-case, for case-insensitive matching
   key <- unique(strsplit(tolower(query$query), '\\s+')[[1]])
@@ -478,7 +517,7 @@ selectizeJSON <- function(data, req) {
     idx <- idx | apply(matches, 1, cjn)
   }
   # only return the first n rows (n = maximum options in configuration)
-  idx <- head(if (length(key)) which(idx) else seq_along(idx), mop)
+  idx <- utils::head(if (length(key)) which(idx) else seq_along(idx), mop)
   data <- data[idx, ]
 
   res <- toJSON(columnToRowData(data))

@@ -20,6 +20,14 @@ NULL
 #' @import htmltools httpuv xtable digest R6 mime
 NULL
 
+# It's necessary to Depend on methods so Rscript doesn't fail. It's necessary
+# to import(methods) in NAMESPACE so R CMD check doesn't complain. This
+# approach isn't foolproof because Rscript -e pkgname::func() doesn't actually
+# cause methods to be attached, but it's not a problem for shiny::runApp()
+# since we call require(shiny) as part of loading the app.
+#' @import methods
+NULL
+
 
 #' Global options for Shiny
 #'
@@ -53,6 +61,10 @@ NULL
 #'     \code{\link{runApp}} for more information.}
 #'   \item{shiny.json.digits}{The number of digits to use when converting
 #'     numbers to JSON format to send to the client web browser.}
+#'   \item{shiny.minified}{If this is \code{TRUE} or unset (the default), then
+#'     Shiny will use minified JavaScript (\code{shiny.min.js}). If
+#'     \code{FALSE}, then Shiny will use the un-minified JavaScript
+#'     (\code{shiny.js}); this can be useful during development.}
 #'   \item{shiny.error}{This can be a function which is called when an error
 #'     occurs. For example, \code{options(shiny.error=recover)} will result a
 #'     the debugger prompt when an error occurs.}
@@ -301,6 +313,14 @@ ShinySession <- R6Class(
       if (is.null(hidden)) hidden <- TRUE
 
       return(hidden && private$getOutputOption(name, 'suspendWhenHidden', TRUE))
+    },
+
+    registerSessionEndCallbacks = function() {
+      # This is to be called from the initialization. It registers functions
+      # that are called when a session ends.
+
+      # Clear file upload directories, if present
+      self$onSessionEnded(private$fileUploadContext$rmUploadDirs)
     }
   ),
   public = list(
@@ -345,6 +365,8 @@ ShinySession <- R6Class(
       self$token <- createUniqueId(16)
       private$.outputs <- list()
       private$.outputOptions <- list()
+
+      private$registerSessionEndCallbacks()
 
       if (!is.null(websocket$request$HTTP_SHINY_SERVER_CREDENTIALS)) {
         try({
@@ -477,7 +499,7 @@ ShinySession <- R6Class(
             private$invalidatedOutputErrors$set(
               name,
               list(message = cond$message,
-                   call = capture.output(print(cond$call)),
+                   call = utils::capture.output(print(cond$call)),
                    type = if (length(type)) type))
           }
           else

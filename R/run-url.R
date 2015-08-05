@@ -71,8 +71,8 @@ runUrl <- function(url, filetype = NULL, subdir = NULL, destdir = NULL, ...) {
     untar2(filePath, exdir = fileDir)
 
   } else if (fileext == ".zip") {
-    first <- as.character(unzip(filePath, list=TRUE)$Name)[1]
-    unzip(filePath, exdir = fileDir)
+    first <- as.character(utils::unzip(filePath, list=TRUE)$Name)[1]
+    utils::unzip(filePath, exdir = fileDir)
   }
 
   if(is.null(destdir)){
@@ -80,7 +80,7 @@ runUrl <- function(url, filetype = NULL, subdir = NULL, destdir = NULL, ...) {
   }
 
   appdir <- file.path(fileDir, first)
-  if (!file_test('-d', appdir)) appdir <- dirname(appdir)
+  if (!utils::file_test('-d', appdir)) appdir <- dirname(appdir)
 
   if (!is.null(subdir)) appdir <- file.path(appdir, subdir)
   runApp(appdir, ...)
@@ -112,7 +112,7 @@ runGist <- function(gist, destdir = NULL, ...) {
     stop('Unrecognized gist identifier format')
   }
 
-  runUrl(gistUrl, filetype = ".tar.gz", destdir = destdir, ...)
+  runUrl(gistUrl, filetype = ".zip", destdir = destdir, ...)
 }
 
 

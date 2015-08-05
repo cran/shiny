@@ -59,7 +59,6 @@ sd_section("UI Outputs",
   "Functions for creating user interface elements that, in conjunction with rendering functions, display different kinds of output from your application.",
   c(
     "htmlOutput",
-    "imageOutput",
     "plotOutput",
     "outputOptions",
     "tableOutput",
@@ -158,6 +157,17 @@ sd_section("Utility functions",
     "shinyDeprecated",
     "serverInfo",
     "shiny-options"
+  )
+)
+sd_section("Plot interaction",
+  "Functions related to interactive plots",
+  c(
+    "brushedPoints",
+    "brushOpts",
+    "clickOpts",
+    "dblclickOpts",
+    "hoverOpts",
+    "nearPoints"
   )
 )
 sd_section("Embedding",

@@ -1,5 +1,5 @@
 ﻿// Ion.RangeSlider
-// version 2.0.6 Build: 300
+// version 2.0.12 Build: 331
 // © Denis Ineshin, 2015
 // https://github.com/IonDen
 //
@@ -18,6 +18,7 @@
 
     var plugin_count = 0;
 
+    // IE8 fix
     var is_old_ie = (function () {
         var n = navigator.userAgent,
             r = /msie\s\d+/i,
@@ -32,8 +33,6 @@
         }
         return false;
     } ());
-
-    // IE8 fix
     if (!Function.prototype.bind) {
         Function.prototype.bind = function bind(that) {
 
@@ -139,11 +138,12 @@
     // Core
 
     var IonRangeSlider = function (input, options, plugin_count) {
-        this.VERSION = "2.0.6";
+        this.VERSION = "2.0.12";
         this.input = input;
         this.plugin_count = plugin_count;
         this.current_plugin = 0;
         this.calc_count = 0;
+        this.update_tm = 0;
         this.old_from = 0;
         this.old_to = 0;
         this.raf_id = null;
@@ -175,6 +175,7 @@
             shad_single: null,
             shad_from: null,
             shad_to: null,
+            edge: null,
             grid: null,
             grid_labels: []
         };
@@ -231,7 +232,6 @@
             disable: $inp.data("disable")
         };
         data.values = data.values && data.values.split(",");
-        options = $.extend(data, options);
 
         // get from and to out of input
         var val = $inp.prop("value");
@@ -245,7 +245,7 @@
                 val[1] = +val[1];
             }
 
-            if (options.values && options.values.length) {
+            if (options && options.values && options.values.length) {
                 data.from = val[0] && options.values.indexOf(val[0]);
                 data.to = val[1] && options.values.indexOf(val[1]);
             } else {
@@ -253,6 +253,9 @@
                 data.to = val[1] && +val[1];
             }
         }
+
+        // JS config has a priority
+        options = $.extend(data, options);
 
         // get config from options
         this.options = $.extend({
@@ -413,7 +416,6 @@
             }
 
             this.updateScene();
-            this.raf_id = requestAnimationFrame(this.updateScene.bind(this));
         },
 
         append: function () {
@@ -436,6 +438,7 @@
 
             if (this.options.type === "single") {
                 this.$cache.cont.append(single_html);
+                this.$cache.edge = this.$cache.cont.find(".irs-bar-edge");
                 this.$cache.s_single = this.$cache.cont.find(".single");
                 this.$cache.from[0].style.visibility = "hidden";
                 this.$cache.to[0].style.visibility = "hidden";
@@ -446,6 +449,8 @@
                 this.$cache.s_to = this.$cache.cont.find(".to");
                 this.$cache.shad_from = this.$cache.cont.find(".shadow-from");
                 this.$cache.shad_to = this.$cache.cont.find(".shadow-to");
+
+                this.setTopHandler();
             }
 
             if (this.options.hide_from_to) {
@@ -463,6 +468,19 @@
                 this.$cache.cont.removeClass("irs-disabled");
                 this.$cache.input[0].disabled = false;
                 this.bindEvents();
+            }
+        },
+
+        setTopHandler: function () {
+            var min = this.options.min,
+                max = this.options.max,
+                from = this.options.from,
+                to = this.options.to;
+
+            if (from > min && to === max) {
+                this.$cache.s_from.addClass("type_last");
+            } else if (to < max) {
+                this.$cache.s_to.addClass("type_last");
             }
         },
 
@@ -520,6 +538,7 @@
                 this.$cache.shad_single.on("touchstart.irs_" + this.plugin_count, this.pointerClick.bind(this, "click"));
 
                 this.$cache.s_single.on("mousedown.irs_" + this.plugin_count, this.pointerDown.bind(this, "single"));
+                this.$cache.edge.on("mousedown.irs_" + this.plugin_count, this.pointerClick.bind(this, "click"));
                 this.$cache.shad_single.on("mousedown.irs_" + this.plugin_count, this.pointerClick.bind(this, "click"));
             } else {
                 this.$cache.s_from.on("touchstart.irs_" + this.plugin_count, this.pointerDown.bind(this, "from"));
@@ -580,27 +599,11 @@
             if (is_old_ie) {
                 $("*").prop("unselectable", false);
             }
+
+            this.updateScene();
         },
 
-        pointerDown: function (target, e) {
-            e.preventDefault();
-            e.stopPropagation();
-            var x = e.pageX || e.originalEvent.touches && e.originalEvent.touches[0].pageX;
-            if (e.button === 2) {
-                return;
-            }
-
-            this.current_plugin = this.plugin_count;
-            this.target = target;
-
-            this.is_active = true;
-            this.dragging = true;
-
-            this.coords.x_gap = this.$cache.rs.offset().left;
-            this.coords.x_pointer = x - this.coords.x_gap;
-
-            this.calcPointer();
-
+        changeLevel: function (target) {
             switch (target) {
                 case "single":
                     this.coords.p_gap = this.toFixed(this.coords.p_pointer - this.coords.p_single);
@@ -624,12 +627,35 @@
                     this.$cache.s_from.removeClass("type_last");
                     break;
             }
+        },
+
+        pointerDown: function (target, e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var x = e.pageX || e.originalEvent.touches && e.originalEvent.touches[0].pageX;
+            if (e.button === 2) {
+                return;
+            }
+
+            this.current_plugin = this.plugin_count;
+            this.target = target;
+
+            this.is_active = true;
+            this.dragging = true;
+
+            this.coords.x_gap = this.$cache.rs.offset().left;
+            this.coords.x_pointer = x - this.coords.x_gap;
+
+            this.calcPointer();
+            this.changeLevel(target);
 
             if (is_old_ie) {
                 $("*").prop("unselectable", true);
             }
 
             this.$cache.line.trigger("focus");
+
+            this.updateScene();
         },
 
         pointerClick: function (target, e) {
@@ -679,7 +705,7 @@
             return true;
         },
 
-        // Move by key beta
+        // Move by key. Beta
         // TODO: refactor than have plenty of time
         moveByKey: function (right) {
             var p = this.coords.p_pointer;
@@ -751,7 +777,8 @@
                 real_x = this.toFixed(this.coords.p_pointer - this.coords.p_gap);
 
             if (this.target === "click") {
-                real_x = this.toFixed(this.coords.p_pointer - (this.coords.p_handle / 2));
+                this.coords.p_gap = this.coords.p_handle / 2;
+                real_x = this.toFixed(this.coords.p_pointer - this.coords.p_gap);
                 this.target = this.chooseHandle(real_x);
             }
 
@@ -827,6 +854,10 @@
                     break;
 
                 case "both":
+                    if (this.options.from_fixed || this.options.to_fixed) {
+                        break;
+                    }
+
                     real_x = this.toFixed(real_x + (this.coords.p_handle * 0.1));
 
                     this.coords.p_from_real = this.calcWithStep((real_x - this.coords.p_gap_left) / real_width * 100);
@@ -890,9 +921,9 @@
             } else {
                 var m_point = this.coords.p_from_real + ((this.coords.p_to_real - this.coords.p_from_real) / 2);
                 if (real_x >= m_point) {
-                    return "to";
+                    return this.options.to_fixed ? "from" : "to";
                 } else {
-                    return "from";
+                    return this.options.from_fixed ? "to" : "from";
                 }
             }
         },
@@ -947,13 +978,25 @@
         // Drawings
 
         updateScene: function () {
+            if (this.raf_id) {
+                cancelAnimationFrame(this.raf_id);
+                this.raf_id = null;
+            }
+
+            clearTimeout(this.update_tm);
+            this.update_tm = null;
+
             if (!this.options) {
                 return;
             }
 
             this.drawHandles();
 
-            this.raf_id = requestAnimationFrame(this.updateScene.bind(this));
+            if (this.is_active) {
+                this.raf_id = requestAnimationFrame(this.updateScene.bind(this));
+            } else {
+                this.update_tm = setTimeout(this.updateScene.bind(this), 300);
+            }
         },
 
         drawHandles: function () {
@@ -1119,11 +1162,11 @@
                 } else {
 
                     if (this.options.decorate_both) {
-                        text_single = this.decorate(this._prettify(this.result.from));
+                        text_single = this.decorate(this._prettify(this.result.from), this.result.from);
                         text_single += this.options.values_separator;
-                        text_single += this.decorate(this._prettify(this.result.to));
+                        text_single += this.decorate(this._prettify(this.result.to), this.result.to);
                     } else {
-                        text_single = this.decorate(this._prettify(this.result.from) + this.options.values_separator + this._prettify(this.result.to), this.result.from);
+                        text_single = this.decorate(this._prettify(this.result.from) + this.options.values_separator + this._prettify(this.result.to), this.result.to);
                     }
                     text_from = this.decorate(this._prettify(this.result.from), this.result.from);
                     text_to = this.decorate(this._prettify(this.result.to), this.result.to);
@@ -1192,8 +1235,8 @@
 
             if (o.type === "single") {
                 if (o.from_shadow && (is_from_min || is_from_max)) {
-                    from_min = this.calcPercent(o.from_min || o.min);
-                    from_max = this.calcPercent(o.from_max || o.max) - from_min;
+                    from_min = this.calcPercent(is_from_min ? o.from_min : o.min);
+                    from_max = this.calcPercent(is_from_max ? o.from_max : o.max) - from_min;
                     from_min = this.toFixed(from_min - (this.coords.p_handle / 100 * from_min));
                     from_max = this.toFixed(from_max - (this.coords.p_handle / 100 * from_max));
                     from_min = from_min + (this.coords.p_handle / 2);
@@ -1206,8 +1249,8 @@
                 }
             } else {
                 if (o.from_shadow && (is_from_min || is_from_max)) {
-                    from_min = this.calcPercent(o.from_min || o.min);
-                    from_max = this.calcPercent(o.from_max || o.max) - from_min;
+                    from_min = this.calcPercent(is_from_min ? o.from_min : o.min);
+                    from_max = this.calcPercent(is_from_max ? o.from_max : o.max) - from_min;
                     from_min = this.toFixed(from_min - (this.coords.p_handle / 100 * from_min));
                     from_max = this.toFixed(from_max - (this.coords.p_handle / 100 * from_max));
                     from_min = from_min + (this.coords.p_handle / 2);
@@ -1220,8 +1263,8 @@
                 }
 
                 if (o.to_shadow && (is_to_min || is_to_max)) {
-                    to_min = this.calcPercent(o.to_min || o.min);
-                    to_max = this.calcPercent(o.to_max || o.max) - to_min;
+                    to_min = this.calcPercent(is_to_min ? o.to_min : o.min);
+                    to_max = this.calcPercent(is_to_max ? o.to_max : o.max) - to_min;
                     to_min = this.toFixed(to_min - (this.coords.p_handle / 100 * to_min));
                     to_max = this.toFixed(to_max - (this.coords.p_handle / 100 * to_max));
                     to_min = to_min + (this.coords.p_handle / 2);
@@ -1254,22 +1297,48 @@
         calcReal: function (percent) {
             var min = this.options.min,
                 max = this.options.max,
+                min_decimals = min.toString().split(".")[1],
+                max_decimals = max.toString().split(".")[1],
+                min_length, max_length,
+                avg_decimals = 0,
                 abs = 0;
+
+            if (percent === 0) {
+                return this.options.min;
+            }
+            if (percent === 100) {
+                return this.options.max;
+            }
+
+
+            if (min_decimals) {
+                min_length = min_decimals.length;
+                avg_decimals = min_length;
+            }
+            if (max_decimals) {
+                max_length = max_decimals.length;
+                avg_decimals = max_length;
+            }
+            if (min_length && max_length) {
+                avg_decimals = (min_length >= max_length) ? min_length : max_length;
+            }
 
             if (min < 0) {
                 abs = Math.abs(min);
-                min = min + abs;
-                max = max + abs;
+                min = +(min + abs).toFixed(avg_decimals);
+                max = +(max + abs).toFixed(avg_decimals);
             }
 
             var number = ((max - min) / 100 * percent) + min,
-                string = this.options.step.toString().split(".")[1];
+                string = this.options.step.toString().split(".")[1],
+                result;
 
             if (string) {
                 number = +number.toFixed(string.length);
             } else {
                 number = number / this.options.step;
                 number = number * this.options.step;
+
                 number = +number.toFixed(0);
             }
 
@@ -1277,17 +1346,19 @@
                 number -= abs;
             }
 
-            if (number < this.options.min) {
-                number = this.options.min;
-            } else if (number > this.options.max) {
-                number = this.options.max;
+            if (string) {
+                result = +number.toFixed(string.length);
+            } else {
+                result = this.toFixed(number);
             }
 
-            if (string) {
-                return +number.toFixed(string.length);
-            } else {
-                return this.toFixed(number);
+            if (result < this.options.min) {
+                result = this.options.min;
+            } else if (result > this.options.max) {
+                result = this.options.max;
             }
+
+            return result;
         },
 
         calcWithStep: function (percent) {
@@ -1365,11 +1436,11 @@
             var num = this.calcReal(p_num),
                 o = this.options;
 
-            if (!min || typeof min !== "number") {
+            if (typeof min !== "number") {
                 min = o.min;
             }
 
-            if (!max || typeof max !== "number") {
+            if (typeof max !== "number") {
                 max = o.max;
             }
 
@@ -1385,7 +1456,7 @@
         },
 
         toFixed: function (num) {
-            num = num.toFixed(5);
+            num = num.toFixed(9);
             return +num;
         },
 
@@ -1482,16 +1553,28 @@
                 o.to = o.max;
             }
 
-            if (o.from < o.min || o.from > o.max) {
-                o.from = o.min;
-            }
+            if (o.type === "single") {
 
-            if (o.to > o.max || o.to < o.min) {
-                o.to = o.max;
-            }
+                if (o.from < o.min) {
+                    o.from = o.min;
+                }
 
-            if (o.type === "double" && o.from > o.to) {
-                o.from = o.to;
+                if (o.from > o.max) {
+                    o.from = o.max;
+                }
+
+            } else {
+
+                if (o.from < o.min || o.from > o.max) {
+                    o.from = o.min;
+                }
+                if (o.to > o.max || o.to < o.min) {
+                    o.to = o.max;
+                }
+                if (o.from > o.to) {
+                    o.from = o.to;
+                }
+
             }
 
             if (typeof o.step !== "number" || isNaN(o.step) || !o.step || o.step < 0) {
@@ -1502,19 +1585,19 @@
                 o.keyboard_step = 5;
             }
 
-            if (o.from_min && o.from < o.from_min) {
+            if (typeof o.from_min === "number" && o.from < o.from_min) {
                 o.from = o.from_min;
             }
 
-            if (o.from_max && o.from > o.from_max) {
+            if (typeof o.from_max === "number" && o.from > o.from_max) {
                 o.from = o.from_max;
             }
 
-            if (o.to_min && o.to < o.to_min) {
+            if (typeof o.to_min === "number" && o.to < o.to_min) {
                 o.to = o.to_min;
             }
 
-            if (o.to_max && o.from > o.to_max) {
+            if (typeof o.to_max === "number" && o.from > o.to_max) {
                 o.to = o.to_max;
             }
 
@@ -1660,6 +1743,7 @@
                 local_small_max = small_max;
 
                 big_w = this.toFixed(big_p * i);
+
                 if (big_w > 100) {
                     big_w = 100;
 
@@ -1728,15 +1812,15 @@
             }
 
             if (this.options.force_edges) {
-                if (start[0] < this.coords.grid_gap) {
-                    start[0] = this.coords.grid_gap;
+                if (start[0] < -this.coords.grid_gap) {
+                    start[0] = -this.coords.grid_gap;
                     finish[0] = this.toFixed(start[0] + this.coords.big_p[0]);
 
                     this.coords.big_x[0] = this.coords.grid_gap;
                 }
 
-                if (finish[num - 1] > 100 - this.coords.grid_gap) {
-                    finish[num - 1] = 100 - this.coords.grid_gap;
+                if (finish[num - 1] > 100 + this.coords.grid_gap) {
+                    finish[num - 1] = 100 + this.coords.grid_gap;
                     start[num - 1] = this.toFixed(finish[num - 1] - this.coords.big_p[num - 1]);
 
                     this.coords.big_x[num - 1] = this.toFixed(this.coords.big_p[num - 1] - this.coords.grid_gap);

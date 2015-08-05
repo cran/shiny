@@ -10,6 +10,7 @@
   curly:false,
   indent:2
 */
+/* global strftime */
 
 (function() {
   var $ = jQuery;
@@ -84,6 +85,20 @@ function parseDate(dateString) {
     date = new Date(dateString.replace(/-/g, "/"));
   return date;
 }
+
+// Given a Date object, return a string in yyyy-mm-dd format, using the
+// UTC date. This may be a day off from the date in the local time zone.
+function formatDateUTC(date) {
+  if (date instanceof Date) {
+    return date.getUTCFullYear() + '-' +
+           padZeros(date.getUTCMonth()+1, 2) + '-' +
+           padZeros(date.getUTCDate(), 2);
+
+  } else {
+    return null;
+  }
+}
+
 
 // Given an element and a function(width, height), returns a function(). When
 // the output function is called, it calls the input function with the offset
@@ -628,6 +643,10 @@ var ShinyApp = function() {
 
     var socket = createSocketFunc();
     socket.onopen = function() {
+      $(document).trigger({
+        type: 'shiny:connected',
+        socket: socket
+      });
       socket.send(JSON.stringify({
         method: 'init',
         data: self.$initialInput
@@ -642,6 +661,10 @@ var ShinyApp = function() {
       self.dispatchMessage(e.data);
     };
     socket.onclose = function() {
+      $(document).trigger({
+        type: 'shiny:disconnected',
+        socket: socket
+      });
       $(document.body).addClass('disconnected');
       self.$notifyDisconnected();
     };
@@ -3136,14 +3159,42 @@ $.extend(sliderInputBinding, textInputBinding, {
 
     return $(scope).find('input.js-range-slider');
   },
+  getType: function(el) {
+    var dataType = $(el).data('data-type');
+    if (dataType === 'date')
+      return 'shiny.date';
+    else if (dataType === 'datetime')
+      return 'shiny.datetime';
+    else
+      return false;
+  },
   getValue: function(el) {
+    var $el = $(el);
     var result = $(el).data('ionRangeSlider').result;
+
+    // Function for converting numeric value from slider to appropriate type.
+    var convert;
+    var dataType = $el.data('data-type');
+    if (dataType === 'date') {
+      convert = function(val) {
+        return formatDateUTC(new Date(+val));
+      };
+    } else if (dataType === 'datetime') {
+      convert = function(val) {
+        // Convert ms to s
+        return +val / 1000;
+      };
+    } else {
+      convert = function(val) { return +val; };
+    }
+
     if (this._numValues(el) == 2) {
-      return [+result.from, +result.to];
+      return [convert(result.from), convert(result.to)];
     }
     else {
-      return +result.from;
+      return convert(result.from);
     }
+
   },
   setValue: function(el, value) {
     var slider = $(el).data('ionRangeSlider');
@@ -3163,7 +3214,8 @@ $.extend(sliderInputBinding, textInputBinding, {
     $(el).off('.sliderInputBinding');
   },
   receiveMessage: function(el, data) {
-    var slider = $(el).data('ionRangeSlider');
+    var $el = $(el);
+    var slider = $el.data('ionRangeSlider');
     var msg = {};
 
     if (data.hasOwnProperty('value')) {
@@ -3172,8 +3224,6 @@ $.extend(sliderInputBinding, textInputBinding, {
         msg.to = data.value[1];
       } else {
         msg.from = data.value;
-        // Workaround for ionRangeSlider issue #143
-        msg.to = data.value;
       }
     }
     if (data.hasOwnProperty('min'))  msg.min   = data.min;
@@ -3181,13 +3231,13 @@ $.extend(sliderInputBinding, textInputBinding, {
     if (data.hasOwnProperty('step')) msg.step  = data.step;
 
     if (data.hasOwnProperty('label'))
-      $(el).parent().find('label[for="' + $escape(el.id) + '"]').text(data.label);
+      $el.parent().find('label[for="' + $escape(el.id) + '"]').text(data.label);
 
-    $(el).data('updating', true);
+    $el.data('updating', true);
     try {
       slider.update(msg);
     } finally {
-      $(el).data('updating', false);
+      $el.data('updating', false);
     }
   },
   getRatePolicy: function() {
@@ -3199,7 +3249,32 @@ $.extend(sliderInputBinding, textInputBinding, {
   getState: function(el) {
   },
   initialize: function(el) {
-    $(el).ionRangeSlider();
+    var opts = {};
+    var $el = $(el);
+    var dataType = $el.data('data-type');
+    var timeFormat = $el.data('time-format');
+    var timeFormatter;
+
+    // Set up formatting functions
+    if (dataType === 'date') {
+      timeFormatter = strftime.utc();
+      opts.prettify = function(num) {
+        return timeFormatter(timeFormat, new Date(num));
+      };
+
+    } else if (dataType === 'datetime') {
+      var timezone = $el.data('timezone');
+      if (timezone)
+        timeFormatter = strftime.timezone(timezone);
+      else
+        timeFormatter = strftime;
+
+      opts.prettify = function(num) {
+        return timeFormatter(timeFormat, new Date(num));
+      };
+    }
+
+    $el.ionRangeSlider(opts);
   },
 
   // Number of values; 1 for single slider, 2 for range slider
@@ -3256,14 +3331,32 @@ $(document).on('click', '.slider-animate-button', function(evt) {
 
     } else {
       slider = target.data('ionRangeSlider');
+      // Single sliders have slider.options.type == "single", and only the
+      // `from` value is used. Double sliders have type == "double", and also
+      // use the `to` value for the right handle.
       var sliderCanStep = function() {
-        return slider.result.from < slider.result.max;
+        if (slider.options.type === "double")
+          return slider.result.to < slider.result.max;
+        else
+          return slider.result.from < slider.result.max;
       };
       var sliderReset = function() {
-        slider.update({from: slider.result.min});
+        var val = { from: slider.result.min };
+        // Preserve the current spacing for double sliders
+        if (slider.options.type === "double")
+          val.to = val.from + (slider.result.to - slider.result.from);
+
+        slider.update(val);
       };
       var sliderStep = function() {
-        slider.update({from: slider.result.from + slider.options.step});
+        // Don't overshoot the end
+        var val = {
+          from: Math.min(slider.result.max, slider.result.from + slider.options.step)
+        };
+        if (slider.options.type === "double")
+          val.to = Math.min(slider.result.max, slider.result.to + slider.options.step);
+
+        slider.update(val);
       };
 
       // If we're currently at the end, restart
@@ -3312,7 +3405,7 @@ $.extend(dateInputBinding, {
   // format like mm/dd/yyyy)
   getValue: function(el) {
     var date = $(el).find('input').data('datepicker').getUTCDate();
-    return this._formatDate(date);
+    return formatDateUTC(date);
   },
   // value must be an unambiguous string like '2001-01-01', or a Date object.
   setValue: function(el, value) {
@@ -3332,8 +3425,8 @@ $.extend(dateInputBinding, {
 
     // Stringify min and max. If min and max aren't set, they will be
     // -Infinity and Infinity; replace these with null.
-    min = (min === -Infinity) ? null : this._formatDate(min);
-    max = (max ===  Infinity) ? null : this._formatDate(max);
+    min = (min === -Infinity) ? null : formatDateUTC(min);
+    max = (max ===  Infinity) ? null : formatDateUTC(max);
 
     // startViewMode is stored as a number; convert to string
     var startview = $input.data('datepicker').startViewMode;
@@ -3407,18 +3500,6 @@ $.extend(dateInputBinding, {
     // date format.
     this._setMin($input[0], $input.data('min-date'));
     this._setMax($input[0], $input.data('max-date'));
-  },
-  // Given a Date object, return a string in yyyy-mm-dd format, using the
-  // UTC date. This may be a day off from the date in the local time zone.
-  _formatDate: function(date) {
-    if (date instanceof Date) {
-      return date.getUTCFullYear() + '-' +
-             padZeros(date.getUTCMonth()+1, 2) + '-' +
-             padZeros(date.getUTCDate(), 2);
-
-    } else {
-      return null;
-    }
   },
   // Given a format object from a date picker, return a string
   _formatToString: function(format) {
@@ -3499,7 +3580,7 @@ $.extend(dateRangeInputBinding, dateInputBinding, {
     var start = $inputs.eq(0).data('datepicker').getUTCDate();
     var end   = $inputs.eq(1).data('datepicker').getUTCDate();
 
-    return [this._formatDate(start), this._formatDate(end)];
+    return [formatDateUTC(start), formatDateUTC(end)];
   },
   // value must be an array of unambiguous strings like '2001-01-01', or
   // Date objects.
@@ -3533,8 +3614,8 @@ $.extend(dateRangeInputBinding, dateInputBinding, {
 
     // Stringify min and max. If min and max aren't set, they will be
     // -Infinity and Infinity; replace these with null.
-    min = (min === -Infinity) ? null : this._formatDate(min);
-    max = (max ===  Infinity) ? null : this._formatDate(max);
+    min = (min === -Infinity) ? null : formatDateUTC(min);
+    max = (max ===  Infinity) ? null : formatDateUTC(max);
 
     // startViewMode is stored as a number; convert to string
     var startview = $startinput.data('datepicker').startViewMode;

@@ -25,7 +25,7 @@ NULL
 #' rnormB(5)  # [1] -0.7946034  0.2568374 -0.6567597  1.2451387 -0.8375699
 #'
 #' @export
-repeatable <- function(rngfunc, seed = runif(1, 0, .Machine$integer.max)) {
+repeatable <- function(rngfunc, seed = stats::runif(1, 0, .Machine$integer.max)) {
   force(seed)
 
   function(...) {
@@ -95,7 +95,7 @@ reinitializeSeed <- if (getRversion() >= '3.0.0') {
 
 # Version of runif that runs with private seed
 p_runif <- function(...) {
-  withPrivateSeed(runif(...))
+  withPrivateSeed(stats::runif(...))
 }
 
 # Version of sample that runs with private seed
@@ -258,7 +258,7 @@ download <- function(url, ...) {
 
       # Needed for https
       mySI2(TRUE)
-      download.file(url, ...)
+      utils::download.file(url, ...)
 
     } else {
       # If non-Windows, check for curl/wget/lynx, then call download.file with
@@ -282,11 +282,11 @@ download <- function(url, ...) {
         stop("no download method found")
       }
 
-      download.file(url, method = method, ...)
+      utils::download.file(url, method = method, ...)
     }
 
   } else {
-    download.file(url, ...)
+    utils::download.file(url, ...)
   }
 }
 
@@ -474,7 +474,7 @@ parseQueryString <- function(str, nested = FALSE) {
   keys   <- URLdecode(keys)
   values <- URLdecode(values)
 
-  res <- setNames(as.list(values), keys)
+  res <- stats::setNames(as.list(values), keys)
   if (!nested) return(res)
 
   # Make a nested list from a query of the form ?a[1][1]=x11&a[1][2]=x12&...
@@ -580,7 +580,11 @@ Callbacks <- R6Class(
       })
     },
     invoke = function(..., onError=NULL) {
-      for (callback in .callbacks$values()) {
+      # Ensure that calls are invoked in the order that they were registered
+      keys <- as.character(sort(as.integer(.callbacks$keys()), decreasing = TRUE))
+      callbacks <- .callbacks$mget(keys)
+
+      for (callback in callbacks) {
         if (is.null(onError)) {
           callback(...)
         } else {
@@ -604,7 +608,7 @@ dataTablesJSON <- function(data, req) {
 
   # global searching
   i <- seq_len(n)
-  if (q$search[['value']] != '') {
+  if (length(q$search[['value']]) && q$search[['value']] != '') {
     i0 <- apply(data, 2, function(x) {
       grep2(q$search[['value']], as.character(x),
             fixed = q$search[['regex']] == 'false', ignore.case = ci)
@@ -888,7 +892,7 @@ validate <- function(..., errorClass = character(0)) {
       stop("Unexpected validation result: ", as.character(x))
   })
 
-  results <- na.omit(results)
+  results <- stats::na.omit(results)
   if (length(results) == 0)
     return(invisible())
 
@@ -932,11 +936,11 @@ isTruthy <- function(x) {
     return(FALSE)
   if (all(is.na(x)))
     return(FALSE)
-  if (is.character(x) && !any(nzchar(na.omit(x))))
+  if (is.character(x) && !any(nzchar(stats::na.omit(x))))
     return(FALSE)
   if (inherits(x, 'shinyActionButtonValue') && x == 0)
     return(FALSE)
-  if (is.logical(x) && !any(na.omit(x)))
+  if (is.logical(x) && !any(stats::na.omit(x)))
     return(FALSE)
 
   return(TRUE)

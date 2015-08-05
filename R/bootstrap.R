@@ -174,7 +174,8 @@ pageWithSidebar <- function(headerPanel,
 #'   menu within the navbar that in turns includes additional tabPanels (see
 #'   example below).
 #'
-#' @seealso \code{\link{tabPanel}}, \code{\link{tabsetPanel}}
+#' @seealso \code{\link{tabPanel}}, \code{\link{tabsetPanel}},
+#'   \code{\link{updateNavbarPage}}
 #'
 #' @examples
 #' shinyUI(navbarPage("App Title",
@@ -423,260 +424,6 @@ conditionalPanel <- function(condition, ...) {
   div('data-display-if'=condition, ...)
 }
 
-#' Create a text input control
-#'
-#' Create an input control for entry of unstructured text values
-#'
-#' @param inputId The \code{input} slot that will be used to access the value.
-#' @param label Display label for the control, or \code{NULL} for no label.
-#' @param value Initial value.
-#' @return A text input control that can be added to a UI definition.
-#'
-#' @family input elements
-#' @seealso \code{\link{updateTextInput}}
-#'
-#' @examples
-#' textInput("caption", "Caption:", "Data Summary")
-#' @export
-textInput <- function(inputId, label, value = "") {
-  div(class = "form-group shiny-input-container",
-    label %AND% tags$label(label, `for` = inputId),
-    tags$input(id = inputId, type="text", class="form-control", value=value)
-  )
-}
-
-#' Create a password input control
-#'
-#' Create an password control for entry of passwords.
-#'
-#' @inheritParams textInput
-#' @return A text input control that can be added to a UI definition.
-#'
-#' @family input elements
-#' @seealso \code{\link{updateTextInput}}
-#'
-#' @examples
-#' passwordInput("password", "Password:")
-#' @export
-passwordInput <- function(inputId, label, value = "") {
-  div(class = "form-group shiny-input-container",
-    label %AND% tags$label(label, `for` = inputId),
-    tags$input(id = inputId, type="password", class="form-control", value=value)
-  )
-}
-
-#' Create a numeric input control
-#'
-#' Create an input control for entry of numeric values
-#'
-#' @inheritParams textInput
-#' @param min Minimum allowed value
-#' @param max Maximum allowed value
-#' @param step Interval to use when stepping between min and max
-#' @return A numeric input control that can be added to a UI definition.
-#'
-#' @family input elements
-#' @seealso \code{\link{updateNumericInput}}
-#'
-#' @examples
-#' numericInput("obs", "Observations:", 10,
-#'              min = 1, max = 100)
-#' @export
-numericInput <- function(inputId, label, value, min = NA, max = NA, step = NA) {
-
-  # build input tag
-  inputTag <- tags$input(id = inputId, type = "number", class="form-control",
-                         value = formatNoSci(value))
-  if (!is.na(min))
-    inputTag$attribs$min = min
-  if (!is.na(max))
-    inputTag$attribs$max = max
-  if (!is.na(step))
-    inputTag$attribs$step = step
-
-  div(class = "form-group shiny-input-container",
-    label %AND% tags$label(label, `for` = inputId),
-    inputTag
-  )
-}
-
-
-#' File Upload Control
-#'
-#' Create a file upload control that can be used to upload one or more files.
-#'
-#' Whenever a file upload completes, the corresponding input variable is set
-#' to a dataframe. This dataframe contains one row for each selected file, and
-#' the following columns:
-#' \describe{
-#'   \item{\code{name}}{The filename provided by the web browser. This is
-#'   \strong{not} the path to read to get at the actual data that was uploaded
-#'   (see
-#'   \code{datapath} column).}
-#'   \item{\code{size}}{The size of the uploaded data, in
-#'   bytes.}
-#'   \item{\code{type}}{The MIME type reported by the browser (for example,
-#'   \code{text/plain}), or empty string if the browser didn't know.}
-#'   \item{\code{datapath}}{The path to a temp file that contains the data that was
-#'   uploaded. This file may be deleted if the user performs another upload
-#'   operation.}
-#' }
-#'
-#' @family input elements
-#'
-#' @inheritParams textInput
-#' @param multiple Whether the user should be allowed to select and upload
-#'   multiple files at once. \bold{Does not work on older browsers, including
-#'   Internet Explorer 9 and earlier.}
-#' @param accept A character vector of MIME types; gives the browser a hint of
-#'   what kind of files the server is expecting.
-#'
-#' @export
-fileInput <- function(inputId, label, multiple = FALSE, accept = NULL) {
-  inputTag <- tags$input(id = inputId, name = inputId, type = "file")
-  if (multiple)
-    inputTag$attribs$multiple <- "multiple"
-  if (length(accept) > 0)
-    inputTag$attribs$accept <- paste(accept, collapse=',')
-
-  div(class = "form-group shiny-input-container",
-    label %AND% tags$label(label),
-    inputTag,
-    tags$div(
-      id=paste(inputId, "_progress", sep=""),
-      class="progress progress-striped active shiny-file-input-progress",
-      tags$div(class="progress-bar")
-    )
-  )
-}
-
-
-#' Checkbox Input Control
-#'
-#' Create a checkbox that can be used to specify logical values.
-#'
-#' @inheritParams textInput
-#' @param value Initial value (\code{TRUE} or \code{FALSE}).
-#' @return A checkbox control that can be added to a UI definition.
-#'
-#' @family input elements
-#' @seealso \code{\link{checkboxGroupInput}}, \code{\link{updateCheckboxInput}}
-#'
-#' @examples
-#' checkboxInput("outliers", "Show outliers", FALSE)
-#' @export
-checkboxInput <- function(inputId, label, value = FALSE) {
-  inputTag <- tags$input(id = inputId, type="checkbox")
-  if (!is.null(value) && value)
-    inputTag$attribs$checked <- "checked"
-
-  div(class = "form-group shiny-input-container",
-    div(class = "checkbox",
-      tags$label(inputTag, tags$span(label))
-    )
-  )
-}
-
-
-#' Checkbox Group Input Control
-#'
-#' Create a group of checkboxes that can be used to toggle multiple choices
-#' independently. The server will receive the input as a character vector of the
-#' selected values.
-#'
-#' @inheritParams textInput
-#' @param choices List of values to show checkboxes for. If elements of the list
-#'   are named then that name rather than the value is displayed to the user.
-#' @param selected The values that should be initially selected, if any.
-#' @param inline If \code{TRUE}, render the choices inline (i.e. horizontally)
-#' @return A list of HTML elements that can be added to a UI definition.
-#'
-#' @family input elements
-#' @seealso \code{\link{checkboxInput}}, \code{\link{updateCheckboxGroupInput}}
-#'
-#' @examples
-#' checkboxGroupInput("variable", "Variable:",
-#'                    c("Cylinders" = "cyl",
-#'                      "Transmission" = "am",
-#'                      "Gears" = "gear"))
-#'
-#' @export
-checkboxGroupInput <- function(inputId, label, choices, selected = NULL, inline = FALSE) {
-  # resolve names
-  choices <- choicesWithNames(choices)
-  if (!is.null(selected))
-    selected <- validateSelected(selected, choices, inputId)
-
-  options <- generateOptions(inputId, choices, selected, inline)
-
-  divClass <- "form-group shiny-input-checkboxgroup shiny-input-container"
-  if (inline)
-    divClass <- paste(divClass, "shiny-input-container-inline")
-
-  # return label and select tag
-  tags$div(id = inputId,
-           class = divClass,
-           controlLabel(inputId, label),
-           options)
-}
-
-# Before shiny 0.9, `selected` refers to names/labels of `choices`; now it
-# refers to values. Below is a function for backward compatibility.
-validateSelected <- function(selected, choices, inputId) {
-  # drop names, otherwise toJSON() keeps them too
-  selected <- unname(selected)
-  # if you are using optgroups, you're using shiny > 0.10.0, and you should
-  # already know that `selected` must be a value instead of a label
-  if (needOptgroup(choices)) return(selected)
-
-  if (is.list(choices)) choices <- unlist(choices)
-
-  nms <- names(choices)
-  # labels and values are identical, no need to validate
-  if (identical(nms, unname(choices))) return(selected)
-  # when selected labels instead of values
-  i <- (selected %in% nms) & !(selected %in% choices)
-  if (any(i)) {
-    warnFun <- if (all(i)) {
-      # replace names with values
-      selected <- unname(choices[selected])
-      warning
-    } else stop  # stop when it is ambiguous (some labels == values)
-    warnFun("'selected' must be the values instead of names of 'choices' ",
-            "for the input '", inputId, "'")
-  }
-  selected
-}
-
-# generate options for radio buttons and checkbox groups (type = 'checkbox' or
-# 'radio')
-generateOptions <- function(inputId, choices, selected, inline, type = 'checkbox') {
-  # generate a list of <input type=? [checked] />
-  options <- mapply(
-    choices, names(choices),
-    FUN = function(value, name) {
-      inputTag <- tags$input(
-        type = type, name = inputId, value = value
-      )
-      if (value %in% selected)
-        inputTag$attribs$checked <- "checked"
-
-      # If inline, there's no wrapper div, and the label needs a class like
-      # checkbox-inline.
-      if (inline) {
-        tags$label(class = paste0(type, "-inline"), inputTag, tags$span(name))
-      } else {
-        tags$div(class = type,
-          tags$label(inputTag, tags$span(name))
-        )
-      }
-    },
-    SIMPLIFY = FALSE, USE.NAMES = FALSE
-  )
-
-  div(class = "shiny-options-group", options)
-}
-
 #' Create a help text element
 #'
 #' Create help text which can be added to an input form to provide additional
@@ -692,686 +439,6 @@ generateOptions <- function(inputId, choices, selected, inline, type = 'checkbox
 #' @export
 helpText <- function(...) {
   span(class="help-block", ...)
-}
-
-controlLabel <- function(controlName, label) {
-  label %AND% tags$label(class = "control-label", `for` = controlName, label)
-}
-
-# Takes a vector or list, and adds names (same as the value) to any entries
-# without names.
-choicesWithNames <- function(choices) {
-  # Take a vector or list, and convert to list. Also, if any children are
-  # vectors with length > 1, convert those to list. If the list is unnamed,
-  # convert it to a named list with blank names.
-  listify <- function(obj) {
-    # If a list/vector is unnamed, give it blank names
-    makeNamed <- function(x) {
-      if (is.null(names(x))) names(x) <- character(length(x))
-      x
-    }
-
-    res <- lapply(obj, function(val) {
-      if (is.list(val))
-        listify(val)
-      else if (length(val) == 1 && is.null(names(val)))
-        val
-      else
-        makeNamed(as.list(val))
-    })
-
-    makeNamed(res)
-  }
-
-  choices <- listify(choices)
-  if (length(choices) == 0) return(choices)
-
-  # Recurse into any subgroups
-  choices <- mapply(choices, names(choices), FUN = function(choice, name) {
-    if (!is.list(choice)) return(choice)
-    if (name == "") stop('All sub-lists in "choices" must be named.')
-    choicesWithNames(choice)
-  }, SIMPLIFY = FALSE)
-
-  # default missing names to choice values
-  missing <- names(choices) == ""
-  names(choices)[missing] <- as.character(choices)[missing]
-
-  choices
-}
-
-#' Create a select list input control
-#'
-#' Create a select list that can be used to choose a single or multiple items
-#' from a list of values.
-#'
-#' By default, \code{selectInput()} and \code{selectizeInput()} use the
-#' JavaScript library \pkg{selectize.js}
-#' (\url{https://github.com/brianreavis/selectize.js}) to instead of the basic
-#' select input element. To use the standard HTML select input element, use
-#' \code{selectInput()} with \code{selectize=FALSE}.
-#'
-#' @inheritParams textInput
-#' @param choices List of values to select from. If elements of the list are
-#'   named then that name rather than the value is displayed to the user.
-#' @param selected The initially selected value (or multiple values if
-#'   \code{multiple = TRUE}). If not specified then defaults to the first value
-#'   for single-select lists and no values for multiple select lists.
-#' @param multiple Is selection of multiple items allowed?
-#' @param selectize Whether to use \pkg{selectize.js} or not.
-#' @param size Number of items to show in the selection box; a larger number
-#'   will result in a taller box. Not compatible with \code{selectize=TRUE}.
-#'   Normally, when \code{multiple=FALSE}, a select input will be a drop-down
-#'   list, but when \code{size} is set, it will be a box instead.
-#' @return A select list control that can be added to a UI definition.
-#'
-#' @family input elements
-#' @seealso \code{\link{updateSelectInput}}
-#'
-#' @examples
-#' selectInput("variable", "Variable:",
-#'             c("Cylinders" = "cyl",
-#'               "Transmission" = "am",
-#'               "Gears" = "gear"))
-#' @export
-selectInput <- function(inputId, label, choices, selected = NULL,
-                        multiple = FALSE, selectize = TRUE, width = NULL,
-                        size = NULL) {
-  # resolve names
-  choices <- choicesWithNames(choices)
-
-  # default value if it's not specified
-  if (is.null(selected)) {
-    if (!multiple) selected <- firstChoice(choices)
-  } else selected <- validateSelected(selected, choices, inputId)
-
-  if (!is.null(size) && selectize) {
-    stop("'size' argument is incompatible with 'selectize=TRUE'.")
-  }
-
-  # create select tag and add options
-  selectTag <- tags$select(
-    id = inputId,
-    class = if (!selectize) "form-control",
-    size = size,
-    selectOptions(choices, selected)
-  )
-  if (multiple)
-    selectTag$attribs$multiple <- "multiple"
-
-  # return label and select tag
-  res <- div(
-    class = "form-group shiny-input-container",
-    style = if (!is.null(width)) paste0("width: ", validateCssUnit(width)),
-    controlLabel(inputId, label),
-    div(selectTag)
-  )
-
-  if (!selectize) return(res)
-
-  selectizeIt(inputId, res, NULL, nonempty = !multiple && !("" %in% choices))
-}
-
-firstChoice <- function(choices) {
-  if (length(choices) == 0L) return()
-  choice <- choices[[1]]
-  if (is.list(choice)) firstChoice(choice) else choice
-}
-
-# Create tags for each of the options; use <optgroup> if necessary.
-# This returns a HTML string instead of tags, because of the 'selected'
-# attribute.
-selectOptions <- function(choices, selected = NULL) {
-  html <- mapply(choices, names(choices), FUN = function(choice, label) {
-    if (is.list(choice)) {
-      # If sub-list, create an optgroup and recurse into the sublist
-      sprintf(
-        '<optgroup label="%s">\n%s\n</optgroup>',
-        htmlEscape(label),
-        selectOptions(choice, selected)
-      )
-
-    } else {
-      # If single item, just return option string
-      sprintf(
-        '<option value="%s"%s>%s</option>',
-        htmlEscape(choice),
-        if (choice %in% selected) ' selected' else '',
-        htmlEscape(label)
-      )
-    }
-  })
-
-  HTML(paste(html, collapse = '\n'))
-}
-
-# need <optgroup> when choices contains sub-lists
-needOptgroup <- function(choices) {
-  any(vapply(choices, is.list, logical(1)))
-}
-
-#' @rdname selectInput
-#' @param ... Arguments passed to \code{selectInput()}.
-#' @param options A list of options. See the documentation of \pkg{selectize.js}
-#'   for possible options (character option values inside \code{\link{I}()} will
-#'   be treated as literal JavaScript code; see \code{\link{renderDataTable}()}
-#'   for details).
-#' @param width The width of the input, e.g. \code{'400px'}, or \code{'100\%'};
-#'   see \code{\link{validateCssUnit}}.
-#' @note The selectize input created from \code{selectizeInput()} allows
-#'   deletion of the selected option even in a single select input, which will
-#'   return an empty string as its value. This is the default behavior of
-#'   \pkg{selectize.js}. However, the selectize input created from
-#'   \code{selectInput(..., selectize = TRUE)} will ignore the empty string
-#'   value when it is a single choice input and the empty string is not in the
-#'   \code{choices} argument. This is to keep compatibility with
-#'   \code{selectInput(..., selectize = FALSE)}.
-#' @export
-selectizeInput <- function(inputId, ..., options = NULL, width = NULL) {
-  selectizeIt(
-    inputId,
-    selectInput(inputId, ..., selectize = FALSE, width = width),
-    options
-  )
-}
-
-# given a select input and its id, selectize it
-selectizeIt <- function(inputId, select, options, nonempty = FALSE) {
-  res <- checkAsIs(options)
-
-  selectizeDep <- htmlDependency(
-    "selectize", "0.11.2", c(href = "shared/selectize"),
-    stylesheet = "css/selectize.bootstrap3.css",
-    head = format(tagList(
-      HTML('<!--[if lt IE 9]>'),
-      tags$script(src = 'shared/selectize/js/es5-shim.min.js'),
-      HTML('<![endif]-->'),
-      tags$script(src = 'shared/selectize/js/selectize.min.js')
-    ))
-  )
-
-  # Insert script on same level as <select> tag
-  select$children[[2]] <- tagAppendChild(
-    select$children[[2]],
-    tags$script(
-      type = 'application/json',
-      `data-for` = inputId, `data-nonempty` = if (nonempty) '',
-      `data-eval` = if (length(res$eval)) HTML(toJSON(res$eval)),
-      if (length(res$options)) HTML(toJSON(res$options)) else '{}'
-    )
-  )
-
-  attachDependencies(select, selectizeDep)
-}
-
-#' Create radio buttons
-#'
-#' Create a set of radio buttons used to select an item from a list.
-#'
-#' @inheritParams textInput
-#' @param choices List of values to select from (if elements of the list are
-#' named then that name rather than the value is displayed to the user)
-#' @param selected The initially selected value (if not specified then
-#' defaults to the first value)
-#' @param inline If \code{TRUE}, render the choices inline (i.e. horizontally)
-#' @return A set of radio buttons that can be added to a UI definition.
-#'
-#' @family input elements
-#' @seealso \code{\link{updateRadioButtons}}
-#'
-#' @examples
-#' radioButtons("dist", "Distribution type:",
-#'              c("Normal" = "norm",
-#'                "Uniform" = "unif",
-#'                "Log-normal" = "lnorm",
-#'                "Exponential" = "exp"))
-#' @export
-radioButtons <- function(inputId, label, choices, selected = NULL, inline = FALSE) {
-  # resolve names
-  choices <- choicesWithNames(choices)
-
-  # default value if it's not specified
-  selected <- if (is.null(selected)) choices[[1]] else {
-    validateSelected(selected, choices, inputId)
-  }
-  if (length(selected) > 1) stop("The 'selected' argument must be of length 1")
-
-  options <- generateOptions(inputId, choices, selected, inline, type = 'radio')
-
-  divClass <- "form-group shiny-input-radiogroup shiny-input-container"
-  if (inline)
-    divClass <- paste(divClass, "shiny-input-container-inline")
-
-  tags$div(id = inputId,
-    class = divClass,
-    controlLabel(inputId, label),
-    options)
-}
-
-#' Create a submit button
-#'
-#' Create a submit button for an input form. Forms that include a submit
-#' button do not automatically update their outputs when inputs change,
-#' rather they wait until the user explicitly clicks the submit button.
-#'
-#' @param text Button caption
-#' @param icon Optional \code{\link{icon}} to appear on the button
-#' @return A submit button that can be added to a UI definition.
-#'
-#' @family input elements
-#'
-#' @examples
-#' submitButton("Update View")
-#' submitButton("Update View", icon("refresh"))
-#' @export
-submitButton <- function(text = "Apply Changes", icon = NULL) {
-  div(
-    tags$button(type="submit", class="btn btn-primary", list(icon, text))
-  )
-}
-
-#' Action button/link
-#'
-#' Creates an action button or link whose value is initially zero, and increments by one
-#' each time it is pressed.
-#'
-#' @param inputId Specifies the input slot that will be used to access the
-#'   value.
-#' @param label The contents of the button or link--usually a text label, but
-#'   you could also use any other HTML, like an image.
-#' @param icon An optional \code{\link{icon}} to appear on the button.
-#' @param ... Named attributes to be applied to the button or link.
-#'
-#' @family input elements
-#' @examples
-#' \dontrun{
-#' # In server.R
-#' output$distPlot <- renderPlot({
-#'   # Take a dependency on input$goButton
-#'   input$goButton
-#'
-#'   # Use isolate() to avoid dependency on input$obs
-#'   dist <- isolate(rnorm(input$obs))
-#'   hist(dist)
-#' })
-#'
-#' # In ui.R
-#' actionButton("goButton", "Go!")
-#' }
-#'
-#' @seealso \code{\link{observeEvent}} and \code{\link{eventReactive}}
-#'
-#' @export
-actionButton <- function(inputId, label, icon = NULL, ...) {
-  tags$button(id=inputId,
-              type="button",
-              class="btn btn-default action-button",
-              list(icon, label),
-              ...)
-}
-
-#' @rdname actionButton
-#' @export
-actionLink <- function(inputId, label, icon = NULL, ...) {
-  tags$a(id=inputId,
-         href="#",
-         class="action-button",
-         list(icon, label),
-         ...)
-}
-
-#' Slider Input Widget
-#'
-#' Constructs a slider widget to select a numeric value from a range.
-#'
-#' @inheritParams textInput
-#' @param min The minimum value (inclusive) that can be selected.
-#' @param max The maximum value (inclusive) that can be selected.
-#' @param value The initial value of the slider. A numeric vector of length
-#'   one will create a regular slider; a numeric vector of length two will
-#'   create a double-ended range slider. A warning will be issued if the
-#'   value doesn't fit between \code{min} and \code{max}.
-#' @param step Specifies the interval between each selectable value on the
-#'   slider (if \code{NULL}, a heuristic is used to determine the step size).
-#' @param round \code{TRUE} to round all values to the nearest integer;
-#'   \code{FALSE} if no rounding is desired; or an integer to round to that
-#'   number of digits (for example, 1 will round to the nearest 10, and -2 will
-#'   round to the nearest .01). Any rounding will be applied after snapping to
-#'   the nearest step.
-#' @param format Deprecated.
-#' @param locale Deprecated.
-#' @param ticks \code{FALSE} to hide tick marks, \code{TRUE} to show them
-#'   according to some simple heuristics.
-#' @param animate \code{TRUE} to show simple animation controls with default
-#'   settings; \code{FALSE} not to; or a custom settings list, such as those
-#'   created using \code{\link{animationOptions}}.
-#' @param sep Separator between thousands places in numbers.
-#' @param pre A prefix string to put in front of the value.
-#' @param post A suffix string to put after the value.
-#' @inheritParams selectizeInput
-#' @family input elements
-#' @seealso \code{\link{updateSliderInput}}
-#'
-#' @export
-sliderInput <- function(inputId, label, min, max, value, step = NULL,
-                        round = FALSE, format = NULL, locale = NULL,
-                        ticks = TRUE, animate = FALSE, width = NULL, sep = ",",
-                        pre = NULL, post = NULL) {
-
-  if (!missing(format)) {
-    shinyDeprecated(msg = "The `format` argument to sliderInput is deprecated. Use `sep`, `pre`, and `post` instead.",
-                    version = "0.10.2.2")
-  }
-  if (!missing(locale)) {
-    shinyDeprecated(msg = "The `locale` argument to sliderInput is deprecated. Use `sep`, `pre`, and `post` instead.",
-                    version = "0.10.2.2")
-  }
-
-  # Auto step size
-  range <- max - min
-  if (is.null(step)) {
-    # If short range or decimals, use means continuous decimal with ~100 points
-    if (range < 2 || hasDecimals(min) || hasDecimals(max)) {
-      step <- pretty(c(min, max), n = 100)
-      step <- step[2] - step[1]
-    } else {
-      step <- 1
-    }
-  }
-
-  # Try to get a sane number of tick marks
-  if (ticks) {
-    n_steps <- range / step
-
-    # Make sure there are <= 10 steps.
-    # n_ticks can be a noninteger, which is good when the range is not an
-    # integer multiple of the step size, e.g., min=1, max=10, step=4
-    scale_factor <- ceiling(n_steps / 10)
-    n_ticks <- n_steps / scale_factor
-
-  } else {
-    n_ticks <- NULL
-  }
-
-  sliderProps <- dropNulls(list(
-    class = "js-range-slider",
-    id = inputId,
-    `data-type` = if (length(value) > 1) "double",
-    `data-min` = min,
-    `data-max` = max,
-    `data-from` = value[1],
-    `data-to` = if (length(value) > 1) value[2],
-    `data-step` = step,
-    `data-grid` = ticks,
-    `data-grid-num` = n_ticks,
-    `data-grid-snap` = FALSE,
-    `data-prettify-separator` = sep,
-    `data-prefix` = pre,
-    `data-postfix` = post,
-    `data-keyboard` = TRUE,
-    `data-keyboard-step` = step / (max - min) * 100
-  ))
-
-  # Replace any TRUE and FALSE with "true" and "false"
-  sliderProps <- lapply(sliderProps, function(x) {
-    if (identical(x, TRUE)) "true"
-    else if (identical(x, FALSE)) "false"
-    else x
-  })
-
-  sliderTag <- div(class = "form-group shiny-input-container",
-    style = if (!is.null(width)) paste0("width: ", validateCssUnit(width)),
-    if (!is.null(label)) controlLabel(inputId, label),
-    do.call(tags$input, sliderProps)
-  )
-
-  # Add animation buttons
-  if (identical(animate, TRUE))
-    animate <- animationOptions()
-
-  if (!is.null(animate) && !identical(animate, FALSE)) {
-    if (is.null(animate$playButton))
-      animate$playButton <- icon('play', lib = 'glyphicon')
-    if (is.null(animate$pauseButton))
-      animate$pauseButton <- icon('pause', lib = 'glyphicon')
-
-    sliderTag <- tagAppendChild(
-      sliderTag,
-      tags$div(class='slider-animate-container',
-        tags$a(href='#',
-          class='slider-animate-button',
-          'data-target-id'=inputId,
-          'data-interval'=animate$interval,
-          'data-loop'=animate$loop,
-          span(class = 'play', animate$playButton),
-          span(class = 'pause', animate$pauseButton)
-        )
-      )
-    )
-  }
-
-  dep <- htmlDependency("ionrangeslider", "2.0.6", c(href="shared/ionrangeslider"),
-    script = "js/ion.rangeSlider.min.js",
-    stylesheet = c("css/normalize.css", "css/ion.rangeSlider.css",
-                   "css/ion.rangeSlider.skinShiny.css")
-  )
-
-  attachDependencies(sliderTag, dep)
-}
-
-datePickerDependency <- htmlDependency(
-  "bootstrap-datepicker", "1.0.2", c(href = "shared/datepicker"),
-  script = "js/bootstrap-datepicker.min.js",
-  stylesheet = "css/datepicker.css")
-
-#' Create date input
-#'
-#' Creates a text input which, when clicked on, brings up a calendar that
-#' the user can click on to select dates.
-#'
-#' The date \code{format} string specifies how the date will be displayed in
-#' the browser. It allows the following values:
-#'
-#' \itemize{
-#'   \item \code{yy} Year without century (12)
-#'   \item \code{yyyy} Year with century (2012)
-#'   \item \code{mm} Month number, with leading zero (01-12)
-#'   \item \code{m} Month number, without leading zero (01-12)
-#'   \item \code{M} Abbreviated month name
-#'   \item \code{MM} Full month name
-#'   \item \code{dd} Day of month with leading zero
-#'   \item \code{d} Day of month without leading zero
-#'   \item \code{D} Abbreviated weekday name
-#'   \item \code{DD} Full weekday name
-#' }
-#'
-#' @inheritParams textInput
-#' @param value The starting date. Either a Date object, or a string in
-#'   \code{yyyy-mm-dd} format. If NULL (the default), will use the current
-#'   date in the client's time zone.
-#' @param min The minimum allowed date. Either a Date object, or a string in
-#'   \code{yyyy-mm-dd} format.
-#' @param max The maximum allowed date. Either a Date object, or a string in
-#'   \code{yyyy-mm-dd} format.
-#' @param format The format of the date to display in the browser. Defaults to
-#'   \code{"yyyy-mm-dd"}.
-#' @param startview The date range shown when the input object is first
-#'   clicked. Can be "month" (the default), "year", or "decade".
-#' @param weekstart Which day is the start of the week. Should be an integer
-#'   from 0 (Sunday) to 6 (Saturday).
-#' @param language The language used for month and day names. Default is "en".
-#'   Other valid values include "bg", "ca", "cs", "da", "de", "el", "es", "fi",
-#'   "fr", "he", "hr", "hu", "id", "is", "it", "ja", "kr", "lt", "lv", "ms",
-#'   "nb", "nl", "pl", "pt", "pt-BR", "ro", "rs", "rs-latin", "ru", "sk", "sl",
-#'   "sv", "sw", "th", "tr", "uk", "zh-CN", and "zh-TW".
-#'
-#' @family input elements
-#' @seealso \code{\link{dateRangeInput}}, \code{\link{updateDateInput}}
-#'
-#' @examples
-#' dateInput("date", "Date:", value = "2012-02-29")
-#'
-#' # Default value is the date in client's time zone
-#' dateInput("date", "Date:")
-#'
-#' # value is always yyyy-mm-dd, even if the display format is different
-#' dateInput("date", "Date:", value = "2012-02-29", format = "mm/dd/yy")
-#'
-#' # Pass in a Date object
-#' dateInput("date", "Date:", value = Sys.Date()-10)
-#'
-#' # Use different language and different first day of week
-#' dateInput("date", "Date:",
-#'           language = "de",
-#'           weekstart = 1)
-#'
-#' # Start with decade view instead of default month view
-#' dateInput("date", "Date:",
-#'           startview = "decade")
-#'
-#' @export
-dateInput <- function(inputId, label, value = NULL, min = NULL, max = NULL,
-    format = "yyyy-mm-dd", startview = "month", weekstart = 0, language = "en") {
-
-  # If value is a date object, convert it to a string with yyyy-mm-dd format
-  # Same for min and max
-  if (inherits(value, "Date"))  value <- format(value, "%Y-%m-%d")
-  if (inherits(min,   "Date"))  min   <- format(min,   "%Y-%m-%d")
-  if (inherits(max,   "Date"))  max   <- format(max,   "%Y-%m-%d")
-
-  attachDependencies(
-    tags$div(id = inputId,
-             class = "shiny-date-input form-group shiny-input-container",
-
-      controlLabel(inputId, label),
-      tags$input(type = "text",
-                 # datepicker class necessary for dropdown to display correctly
-                 class = "form-control datepicker",
-                 `data-date-language` = language,
-                 `data-date-weekstart` = weekstart,
-                 `data-date-format` = format,
-                 `data-date-start-view` = startview,
-                 `data-min-date` = min,
-                 `data-max-date` = max,
-                 `data-initial-date` = value
-      )
-    ),
-    datePickerDependency
-  )
-}
-
-
-#' Create date range input
-#'
-#' Creates a pair of text inputs which, when clicked on, bring up calendars that
-#' the user can click on to select dates.
-#'
-#' The date \code{format} string specifies how the date will be displayed in
-#' the browser. It allows the following values:
-#'
-#' \itemize{
-#'   \item \code{yy} Year without century (12)
-#'   \item \code{yyyy} Year with century (2012)
-#'   \item \code{mm} Month number, with leading zero (01-12)
-#'   \item \code{m} Month number, without leading zero (01-12)
-#'   \item \code{M} Abbreviated month name
-#'   \item \code{MM} Full month name
-#'   \item \code{dd} Day of month with leading zero
-#'   \item \code{d} Day of month without leading zero
-#'   \item \code{D} Abbreviated weekday name
-#'   \item \code{DD} Full weekday name
-#' }
-#'
-#' @inheritParams dateInput
-#' @param start The initial start date. Either a Date object, or a string in
-#'   \code{yyyy-mm-dd} format. If NULL (the default), will use the current
-#'   date in the client's time zone.
-#' @param end The initial end date. Either a Date object, or a string in
-#'   \code{yyyy-mm-dd} format. If NULL (the default), will use the current
-#'   date in the client's time zone.
-#' @param separator String to display between the start and end input boxes.
-#'
-#' @family input elements
-#' @seealso \code{\link{dateInput}}, \code{\link{updateDateRangeInput}}
-#'
-#' @examples
-#' dateRangeInput("daterange", "Date range:",
-#'                start = "2001-01-01",
-#'                end   = "2010-12-31")
-#'
-#' # Default start and end is the current date in the client's time zone
-#' dateRangeInput("daterange", "Date range:")
-#'
-#' # start and end are always specified in yyyy-mm-dd, even if the display
-#' # format is different
-#' dateRangeInput("daterange", "Date range:",
-#'                start  = "2001-01-01",
-#'                end    = "2010-12-31",
-#'                min    = "2001-01-01",
-#'                max    = "2012-12-21",
-#'                format = "mm/dd/yy",
-#'                separator = " - ")
-#'
-#' # Pass in Date objects
-#' dateRangeInput("daterange", "Date range:",
-#'                start = Sys.Date()-10,
-#'                end = Sys.Date()+10)
-#'
-#' # Use different language and different first day of week
-#' dateRangeInput("daterange", "Date range:",
-#'                language = "de",
-#'                weekstart = 1)
-#'
-#' # Start with decade view instead of default month view
-#' dateRangeInput("daterange", "Date range:",
-#'                startview = "decade")
-#'
-#' @export
-dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
-    min = NULL, max = NULL, format = "yyyy-mm-dd", startview = "month",
-    weekstart = 0, language = "en", separator = " to ") {
-
-  # If start and end are date objects, convert to a string with yyyy-mm-dd format
-  # Same for min and max
-  if (inherits(start, "Date"))  start <- format(start, "%Y-%m-%d")
-  if (inherits(end,   "Date"))  end   <- format(end,   "%Y-%m-%d")
-  if (inherits(min,   "Date"))  min   <- format(min,   "%Y-%m-%d")
-  if (inherits(max,   "Date"))  max   <- format(max,   "%Y-%m-%d")
-
-  attachDependencies(
-    div(id = inputId,
-             # input-daterange class is needed for dropdown behavior
-             class = "shiny-date-range-input form-group shiny-input-container",
-
-      controlLabel(inputId, label),
-      div(class = "input-daterange input-group",
-        tags$input(
-          class = "input-sm form-control",
-          type = "text",
-          `data-date-language` = language,
-          `data-date-weekstart` = weekstart,
-          `data-date-format` = format,
-          `data-date-start-view` = startview,
-          `data-min-date` = min,
-          `data-max-date` = max,
-          `data-initial-date` = start
-        ),
-        span(class = "input-group-addon", separator),
-        tags$input(
-          class = "input-sm form-control",
-          type = "text",
-          `data-date-language` = language,
-          `data-date-weekstart` = weekstart,
-          `data-date-format` = format,
-          `data-date-start-view` = startview,
-          `data-min-date` = min,
-          `data-max-date` = max,
-          `data-initial-date` = end
-        )
-      )
-    ),
-    datePickerDependency
-  )
 }
 
 
@@ -1494,6 +561,7 @@ tabsetPanel <- function(...,
 #'   supported. This is because version 0.11 switched to Bootstrap 3, which
 #'   doesn't support separators.
 #'
+#' @seealso \code{\link{tabPanel}}, \code{\link{updateNavlistPanel}}
 #' @examples
 #' shinyUI(fluidPage(
 #'
@@ -1693,6 +761,101 @@ textOutput <- function(outputId, container = if (inline) span else div, inline =
 #' @export
 verbatimTextOutput <- function(outputId) {
   textOutput(outputId, container = pre)
+}
+
+
+#' @rdname plotOutput
+#' @export
+imageOutput <- function(outputId, width = "100%", height="400px",
+                        click = NULL, dblclick = NULL,
+                        hover = NULL, hoverDelay = NULL, hoverDelayType = NULL,
+                        brush = NULL,
+                        clickId = NULL, hoverId = NULL,
+                        inline = FALSE) {
+
+  if (!is.null(clickId)) {
+    shinyDeprecated(
+      msg = paste("The 'clickId' argument is deprecated. ",
+                  "Please use 'click' instead. ",
+                  "See ?imageOutput or ?plotOutput for more information."),
+      version = "0.11.1"
+    )
+    click <- clickId
+  }
+
+  if (!is.null(hoverId)) {
+    shinyDeprecated(
+      msg = paste("The 'hoverId' argument is deprecated. ",
+                  "Please use 'hover' instead. ",
+                  "See ?imageOutput or ?plotOutput for more information."),
+      version = "0.11.1"
+    )
+    hover <- hoverId
+  }
+
+  if (!is.null(hoverDelay) || !is.null(hoverDelayType)) {
+    shinyDeprecated(
+      msg = paste("The 'hoverDelay'and 'hoverDelayType' arguments are deprecated. ",
+                  "Please use 'hoverOpts' instead. ",
+                  "See ?imageOutput or ?plotOutput for more information."),
+      version = "0.11.1"
+    )
+    hover <- hoverOpts(id = hover, delay = hoverDelay, delayType = hoverDelayType)
+  }
+
+  style <- if (!inline) {
+    paste("width:", validateCssUnit(width), ";", "height:", validateCssUnit(height))
+  }
+
+
+  # Build up arguments for call to div() or span()
+  args <- list(
+    id = outputId,
+    class = "shiny-image-output",
+    style = style
+  )
+
+  # Given a named list with options, replace names like "delayType" with
+  # "data-hover-delay-type" (given a prefix "hover")
+  formatOptNames <- function(opts, prefix) {
+    newNames <- paste("data", prefix, names(opts), sep = "-")
+    # Replace capital letters with "-" and lowercase letter
+    newNames <- gsub("([A-Z])", "-\\L\\1", newNames, perl = TRUE)
+    names(opts) <- newNames
+    opts
+  }
+
+  if (!is.null(click)) {
+    # If click is a string, turn it into clickOpts object
+    if (is.character(click)) {
+      click <- clickOpts(id = click)
+    }
+    args <- c(args, formatOptNames(click, "click"))
+  }
+
+  if (!is.null(dblclick)) {
+    if (is.character(dblclick)) {
+      dblclick <- clickOpts(id = dblclick)
+    }
+    args <- c(args, formatOptNames(dblclick, "dblclick"))
+  }
+
+  if (!is.null(hover)) {
+    if (is.character(hover)) {
+      hover <- hoverOpts(id = hover)
+    }
+    args <- c(args, formatOptNames(hover, "hover"))
+  }
+
+  if (!is.null(brush)) {
+    if (is.character(brush)) {
+      brush <- brushOpts(id = brush)
+    }
+    args <- c(args, formatOptNames(brush, "brush"))
+  }
+
+  container <- if (inline) span else div
+  do.call(container, args)
 }
 
 #' Create an plot or image output element
@@ -1927,100 +1090,6 @@ verbatimTextOutput <- function(outputId) {
 #' )
 #'
 #' }
-#' @export
-imageOutput <- function(outputId, width = "100%", height="400px",
-                        click = NULL, dblclick = NULL,
-                        hover = NULL, hoverDelay = NULL, hoverDelayType = NULL,
-                        brush = NULL,
-                        clickId = NULL, hoverId = NULL,
-                        inline = FALSE) {
-
-  if (!is.null(clickId)) {
-    shinyDeprecated(
-      msg = paste("The 'clickId' argument is deprecated. ",
-                  "Please use 'click' instead. ",
-                  "See ?imageOutput or ?plotOutput for more information."),
-      version = "0.11.1"
-    )
-    click <- clickId
-  }
-
-  if (!is.null(hoverId)) {
-    shinyDeprecated(
-      msg = paste("The 'hoverId' argument is deprecated. ",
-                  "Please use 'hover' instead. ",
-                  "See ?imageOutput or ?plotOutput for more information."),
-      version = "0.11.1"
-    )
-    hover <- hoverId
-  }
-
-  if (!is.null(hoverDelay) || !is.null(hoverDelayType)) {
-    shinyDeprecated(
-      msg = paste("The 'hoverDelay'and 'hoverDelayType' arguments are deprecated. ",
-                  "Please use 'hoverOpts' instead. ",
-                  "See ?imageOutput or ?plotOutput for more information."),
-      version = "0.11.1"
-    )
-    hover <- hoverOpts(id = hover, delay = hoverDelay, delayType = hoverDelayType)
-  }
-
-  style <- if (!inline) {
-    paste("width:", validateCssUnit(width), ";", "height:", validateCssUnit(height))
-  }
-
-
-  # Build up arguments for call to div() or span()
-  args <- list(
-    id = outputId,
-    class = "shiny-image-output",
-    style = style
-  )
-
-  # Given a named list with options, replace names like "delayType" with
-  # "data-hover-delay-type" (given a prefix "hover")
-  formatOptNames <- function(opts, prefix) {
-    newNames <- paste("data", prefix, names(opts), sep = "-")
-    # Replace capital letters with "-" and lowercase letter
-    newNames <- gsub("([A-Z])", "-\\L\\1", newNames, perl = TRUE)
-    names(opts) <- newNames
-    opts
-  }
-
-  if (!is.null(click)) {
-    # If click is a string, turn it into clickOpts object
-    if (is.character(click)) {
-      click <- clickOpts(id = click)
-    }
-    args <- c(args, formatOptNames(click, "click"))
-  }
-
-  if (!is.null(dblclick)) {
-    if (is.character(dblclick)) {
-      dblclick <- clickOpts(id = dblclick)
-    }
-    args <- c(args, formatOptNames(dblclick, "dblclick"))
-  }
-
-  if (!is.null(hover)) {
-    if (is.character(hover)) {
-      hover <- hoverOpts(id = hover)
-    }
-    args <- c(args, formatOptNames(hover, "hover"))
-  }
-
-  if (!is.null(brush)) {
-    if (is.character(brush)) {
-      brush <- brushOpts(id = brush)
-    }
-    args <- c(args, formatOptNames(brush, "brush"))
-  }
-
-  container <- if (inline) span else div
-  do.call(container, args)
-}
-
-#' @rdname imageOutput
 #' @export
 plotOutput <- function(outputId, width = "100%", height="400px",
                        click = NULL, dblclick = NULL,

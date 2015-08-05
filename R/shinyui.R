@@ -39,8 +39,9 @@ renderPage <- function(ui, connection, showcase=0) {
     list(
       htmlDependency("json2", "2014.02.04", c(href="shared"), script = "json2-min.js"),
       htmlDependency("jquery", "1.11.0", c(href="shared"), script = "jquery.min.js"),
-      htmlDependency("shiny", packageVersion("shiny"), c(href="shared"),
-        script = "shiny.min.js", stylesheet = "shiny.css")
+      htmlDependency("shiny", utils::packageVersion("shiny"), c(href="shared"),
+        script = if (getOption("shiny.minified", TRUE)) "shiny.min.js" else "shiny.js",
+        stylesheet = "shiny.css")
     ),
     result$dependencies
   )
