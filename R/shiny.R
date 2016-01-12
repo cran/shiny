@@ -42,6 +42,22 @@ NULL
 #'   \item{shiny.trace}{If \code{TRUE}, all of the messages sent between the R
 #'     server and the web browser client will be printed on the console. This
 #'     is useful for debugging.}
+#'   \item{shiny.autoreload}{If \code{TRUE} when a Shiny app is launched, the
+#'     app directory will be continually monitored for changes to files that
+#'     have the extensions: r, htm, html, js, css, png, jpg, jpeg, gif. If any
+#'     changes are detected, all connected Shiny sessions are reloaded. This
+#'     allows for fast feedback loops when tweaking Shiny UI.
+#'
+#'     Since monitoring for changes is expensive (we simply poll for last
+#'     modified times), this feature is intended only for development.
+#'
+#'     You can customize the file patterns Shiny will monitor by setting the
+#'     shiny.autoreload.pattern option. For example, to monitor only ui.R:
+#'     \code{option(shiny.autoreload.pattern = glob2rx("ui.R"))}
+#'
+#'     The default polling interval is 500 milliseconds. You can change this
+#'     by setting e.g. \code{option(shiny.autoreload.interval = 2000)} (every
+#'     two seconds).}
 #'   \item{shiny.reactlog}{If \code{TRUE}, enable logging of reactive events,
 #'     which can be viewed later with the \code{\link{showReactLog}} function.
 #'     This incurs a substantial performance penalty and should not be used in
@@ -68,14 +84,18 @@ NULL
 #'   \item{shiny.error}{This can be a function which is called when an error
 #'     occurs. For example, \code{options(shiny.error=recover)} will result a
 #'     the debugger prompt when an error occurs.}
-#'   \item{shiny.observer.error}{This can be a function that is called by an
-#'     observer when an unhandled error occurs in it or an upstream reactive.
-#'     By default, these errors will result in a warning at the console, and
-#'     the websocket connection will close.}
 #'   \item{shiny.table.class}{CSS class names to use for tables.}
 #'   \item{shiny.deprecation.messages}{This controls whether messages for
 #'     deprecated functions in Shiny will be printed. See
 #'     \code{\link{shinyDeprecated}} for more information.}
+#'   \item{shiny.fullstacktrace}{Controls whether "pretty" or full stack traces
+#'     are dumped to the console when errors occur during Shiny app execution.
+#'     The default is \code{FALSE} (pretty stack traces).}
+#'   \item{shiny.stacktraceoffset}{If \code{TRUE}, then Shiny's printed stack
+#'     traces will display srcrefs one line above their usual location. This is
+#'     an arguably more intuitive arrangement for casual R users, as the name
+#'     of a function appears next to the srcref where it is defined, rather than
+#'     where it is currently being called from.}
 #' }
 #' @name shiny-options
 NULL
@@ -212,6 +232,10 @@ workerId <- local({
 #'   endpoint. The return value of \code{filterFunc} should be a Rook-style
 #'   response.
 #' }
+#' \item{reload()}{
+#'   The equivalent of hitting the browser's Reload button. Only works if the
+#'   session is actually connected.
+#' }
 #' \item{request}{
 #'   An environment that implements the Rook specification for HTTP requests.
 #'   This is the request that was used to initiate the websocket connection
@@ -237,10 +261,52 @@ workerId <- local({
 #'   from Shiny apps, but through friendlier wrapper functions like
 #'   \code{\link{updateTextInput}}.
 #' }
+#' \item{ns(id)}{
+#'   Server-side version of \code{ns <- \link{NS}(id)}. If bare IDs need to be
+#'   explicitly namespaced for the current module, \code{session$ns("name")}
+#'   will return the fully-qualified ID.
+#' }
 #'
 #' @name session
 NULL
 
+#' Namespaced IDs for inputs/outputs
+#'
+#' The \code{NS} function creates namespaced IDs out of bare IDs, by joining
+#' them using \code{ns.sep} as the delimiter. It is intended for use in Shiny
+#' modules. See \url{http://shiny.rstudio.com/articles/modules.html}.
+#'
+#' Shiny applications use IDs to identify inputs and outputs. These IDs must be
+#' unique within an application, as accidentally using the same input/output ID
+#' more than once will result in unexpected behavior. The traditional solution
+#' for preventing name collisions is \emph{namespaces}; a namespace is to an ID
+#' as a directory is to a file. Use the \code{NS} function to turn a bare ID
+#' into a namespaced one, by combining them with \code{ns.sep} in between.
+#'
+#' @param namespace The character vector to use for the namespace. This can have
+#'   any length, though a single element is most common. Length 0 will cause the
+#'   \code{id} to be returned without a namespace, and length 2 will be
+#'   interpreted as multiple namespaces, in increasing order of specificity
+#'   (i.e. starting with the top-level namespace).
+#' @param id The id string to be namespaced (optional).
+#' @return If \code{id} is missing, returns a function that expects an id string
+#'   as its only argument and returns that id with the namespace prepended.
+#' @seealso \url{http://shiny.rstudio.com/articles/modules.html}
+#'
+#' @export
+NS <- function(namespace, id = NULL) {
+  if (missing(id)) {
+    function(id) {
+      paste(c(namespace, id), collapse = ns.sep)
+    }
+  } else {
+    paste(c(namespace, id), collapse = ns.sep)
+  }
+}
+
+#' @rdname NS
+#' @export
+ns.sep <- "-"
 
 #' @include utils.R
 ShinySession <- R6Class(
@@ -259,6 +325,7 @@ ShinySession <- R6Class(
     fileUploadContext = 'FileUploadContext',
     .input      = 'ANY', # Internal ReactiveValues object for normal input sent from client
     .clientData = 'ANY', # Internal ReactiveValues object for other data sent from the client
+    busyCount = 0L, # Number of observer callbacks that are pending. When 0, we are idle
     closedCallbacks = 'Callbacks',
     flushCallbacks = 'Callbacks',
     flushedCallbacks = 'Callbacks',
@@ -283,10 +350,6 @@ ShinySession <- R6Class(
       if (isTRUE(getOption('shiny.trace')))
         message('SEND ',
            gsub('(?m)base64,[a-zA-Z0-9+/=]+','[base64 data]',json,perl=TRUE))
-      # first convert to native encoding, then to UTF8, otherwise we may get the
-      # error in Chrome "WebSocket connection failed: Could not decode a text
-      # frame as UTF-8"
-      json <- enc2utf8(enc2native(json))
       private$websocket$send(json)
     },
     getOutputOption = function(outputName, propertyName, defaultValue) {
@@ -386,16 +449,37 @@ ShinySession <- R6Class(
         sessionId = self$token
       ))))
     },
-    onSessionEnded = function(callback) {
+    makeScope = function(namespace) {
+      ns <- NS(namespace)
+
+      createSessionProxy(self,
+        input = .createReactiveValues(private$.input, readonly = TRUE, ns = ns),
+        output = .createOutputWriter(self, ns = ns),
+        sendInputMessage = function(inputId, message) {
+          .subset2(self, "sendInputMessage")(ns(inputId), message)
+        },
+        registerDataObj = function(name, data, filterFunc) {
+          .subset2(self, "registerDataObj")(ns(name), data, filterFunc)
+        },
+        ns = ns,
+        makeScope = function(namespace) {
+          self$makeScope(ns(namespace))
+        }
+      )
+    },
+    ns = function(id) {
+      NS(NULL, id)
+    },
+    onSessionEnded = function(sessionEndedCallback) {
       "Registers the given callback to be invoked when the session is closed
       (i.e. the connection to the client has been severed). The return value
       is a function which unregisters the callback. If multiple callbacks are
       registered, the order in which they are invoked is not guaranteed."
-      return(private$closedCallbacks$register(callback))
+      return(private$closedCallbacks$register(sessionEndedCallback))
     },
-    onEnded = function(callback) {
+    onEnded = function(endedCallback) {
       "Synonym for onSessionEnded"
-      return(self$onSessionEnded(callback))
+      return(self$onSessionEnded(endedCallback))
     },
     onInputReceived = function(callback) {
       "Registers the given callback to be invoked when the session receives
@@ -415,13 +499,8 @@ ShinySession <- R6Class(
       for (output in private$.outputs) {
         output$suspend()
       }
-      private$closedCallbacks$invoke(onError=function(e) {
-        warning(simpleWarning(
-          paste("An error occurred in an onSessionEnded handler:",
-                e$message),
-          e$call
-        ))
-      })
+      # ..stacktraceon matches with the top-level ..stacktraceoff..
+      private$closedCallbacks$invoke(onError = printError, ..stacktraceon = TRUE)
       flushReact()
       lapply(appsByToken$values(), function(shinysession) {
         shinysession$flushOutput()
@@ -453,7 +532,11 @@ ShinySession <- R6Class(
       }
 
       if (is.function(func)) {
-        if (length(formals(func)) != 0) {
+        funcFormals <- formals(func)
+        # ..stacktraceon matches with the top-level ..stacktraceoff.., because
+        # the observer we set up below has ..stacktraceon=FALSE
+        func <- wrapFunctionLabel(func, paste0("output$", name), ..stacktraceon = TRUE)
+        if (length(funcFormals) != 0) {
           orig <- func
           func <- function() {
             orig(name=name, shinysession=self)
@@ -464,31 +547,41 @@ ShinySession <- R6Class(
         # label for display in the reactive graph
         srcref <- attr(label, "srcref")
         srcfile <- attr(label, "srcfile")
-        label <- sprintf('output$%s <- %s', name, paste(label, collapse='\n'))
+        label <- sprintf('output$%s', name)
         attr(label, "srcref") <- srcref
         attr(label, "srcfile") <- srcfile
 
-        obs <- observe({
+        obs <- observe(..stacktraceon = FALSE, {
 
-          value <- try(
-            {
-              tryCatch(
-                shinyCallingHandlers(func()),
-                shiny.silent.error = function(cond) {
-                  # Don't let shiny.silent.error go through the normal stop
-                  # path of try, because we don't want it to print. But we
-                  # do want to try to return the same looking result so that
-                  # the code below can send the error to the browser.
-                  structure(
-                    NULL,
-                    class = "try-error",
-                    condition = cond
-                  )
-                }
+          self$sendCustomMessage('recalculating', list(
+            name = name, status = 'recalculating'
+          ))
+
+          value <- tryCatch(
+            shinyCallingHandlers(func()),
+            shiny.silent.error = function(cond) {
+              # Don't let shiny.silent.error go through the normal stop
+              # path of try, because we don't want it to print. But we
+              # do want to try to return the same looking result so that
+              # the code below can send the error to the browser.
+              structure(
+                NULL,
+                class = "try-error",
+                condition = cond
               )
             },
-            silent=FALSE
+            error = function(cond) {
+              msg <- paste0("Error in output$", name, ": ", conditionMessage(cond), "\n")
+              if (isTRUE(getOption("show.error.messages"))) {
+                printError(cond)
+              }
+              invisible(structure(msg, class = "try-error", condition = cond))
+            }
           )
+
+          self$sendCustomMessage('recalculating', list(
+            name = name, status = 'recalculated'
+          ))
 
           private$invalidatedOutputErrors$remove(name)
           private$invalidatedOutputValues$remove(name)
@@ -520,8 +613,10 @@ ShinySession <- R6Class(
     },
     flushOutput = function() {
 
-      private$flushCallbacks$invoke()
-      on.exit(private$flushedCallbacks$invoke())
+      # ..stacktraceon matches with the top-level ..stacktraceoff..
+      private$flushCallbacks$invoke(..stacktraceon = TRUE)
+      # ..stacktraceon matches with the top-level ..stacktraceoff..
+      on.exit(private$flushedCallbacks$invoke(..stacktraceon = TRUE))
 
       if (length(private$progressKeys) == 0
           && length(private$invalidatedOutputValues) == 0
@@ -598,24 +693,24 @@ ShinySession <- R6Class(
       # Add to input message queue
       private$inputMessageQueue[[length(private$inputMessageQueue) + 1]] <- data
     },
-    onFlush = function(func, once = TRUE) {
+    onFlush = function(flushCallback, once = TRUE) {
       if (!isTRUE(once)) {
-        return(private$flushCallbacks$register(func))
+        return(private$flushCallbacks$register(flushCallback))
       } else {
         dereg <- private$flushCallbacks$register(function() {
           dereg()
-          func()
+          flushCallback()
         })
         return(dereg)
       }
     },
-    onFlushed = function(func, once = TRUE) {
+    onFlushed = function(flushedCallback, once = TRUE) {
       if (!isTRUE(once)) {
-        return(private$flushedCallbacks$register(func))
+        return(private$flushedCallbacks$register(flushedCallback))
       } else {
         dereg <- private$flushedCallbacks$register(function() {
           dereg()
-          func()
+          flushedCallback()
         })
         return(dereg)
       }
@@ -623,6 +718,9 @@ ShinySession <- R6Class(
     reactlog = function(logEntry) {
       if (private$showcase)
         self$sendCustomMessage("reactlog", logEntry)
+    },
+    reload = function() {
+      self$sendCustomMessage("reload", TRUE)
     },
 
     # Public RPC methods
@@ -753,13 +851,16 @@ ShinySession <- R6Class(
         if (nzchar(ext))
           ext <- paste(".", ext, sep = "")
         tmpdata <- tempfile(fileext = ext)
-        result <- try(Context$new(getDefaultReactiveDomain(), '[download]')$run(
-          function() { download$func(tmpdata) }
-        ))
+        # ..stacktraceon matches with the top-level ..stacktraceoff..
+        result <- try(shinyCallingHandlers(Context$new(getDefaultReactiveDomain(), '[download]')$run(
+          function() { ..stacktraceon..(download$func(tmpdata)) }
+        )))
         if (inherits(result, 'try-error')) {
+          cond <- attr(result, 'condition', exact = TRUE)
+          printError(cond)
           unlink(tmpdata)
           return(httpResponse(500, 'text/plain; charset=UTF-8',
-                              enc2utf8(attr(result, 'condition')$message)))
+                              enc2utf8(conditionMessage(cond))))
         }
         return(httpResponse(
           200,
@@ -898,6 +999,18 @@ ShinySession <- R6Class(
       }
 
       invisible()
+    },
+    incrementBusyCount = function() {
+      if (private$busyCount == 0L) {
+        self$sendCustomMessage("busy", "busy")
+      }
+      private$busyCount <- private$busyCount + 1L
+    },
+    decrementBusyCount = function() {
+      private$busyCount <- private$busyCount - 1L
+      if (private$busyCount == 0L) {
+        self$sendCustomMessage("busy", "idle")
+      }
     }
   ),
   active = list(
@@ -912,12 +1025,14 @@ ShinySession <- R6Class(
   )
 )
 
-.createOutputWriter <- function(shinysession) {
-  structure(list(impl=shinysession), class='shinyoutput')
+.createOutputWriter <- function(shinysession, ns = identity) {
+  structure(list(impl=shinysession, ns=ns), class='shinyoutput')
 }
 
 #' @export
 `$<-.shinyoutput` <- function(x, name, value) {
+  name <- .subset2(x, 'ns')(name)
+
   label <- deparse(substitute(value))
   if (length(substitute(value)) > 1) {
     # value is an object consisting of a call and its arguments. Here we want
@@ -988,6 +1103,8 @@ ShinySession <- R6Class(
 outputOptions <- function(x, name, ...) {
   if (!inherits(x, "shinyoutput"))
     stop("x must be a shinyoutput object.")
+
+  name <- .subset2(x, 'ns')(name)
 
   .subset2(x, 'impl')$outputOptions(name, ...)
 }

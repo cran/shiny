@@ -89,7 +89,7 @@ selectOptions <- function(choices, selected = NULL) {
       # If sub-list, create an optgroup and recurse into the sublist
       sprintf(
         '<optgroup label="%s">\n%s\n</optgroup>',
-        htmlEscape(label),
+        htmlEscape(label, TRUE),
         selectOptions(choice, selected)
       )
 
@@ -97,7 +97,7 @@ selectOptions <- function(choices, selected = NULL) {
       # If single item, just return option string
       sprintf(
         '<option value="%s"%s>%s</option>',
-        htmlEscape(choice),
+        htmlEscape(choice, TRUE),
         if (choice %in% selected) ' selected' else '',
         htmlEscape(label)
       )
@@ -151,6 +151,13 @@ selectizeIt <- function(inputId, select, options, nonempty = FALSE) {
       tags$script(src = 'shared/selectize/js/selectize.min.js')
     ))
   )
+
+  if ('drag_drop' %in% options$plugins) {
+    selectizeDep <- list(selectizeDep, htmlDependency(
+      'jqueryui', '1.11.4', c(href = 'shared/jqueryui'),
+      script = 'jquery-ui.min.js'
+    ))
+  }
 
   # Insert script on same level as <select> tag
   select$children[[2]] <- tagAppendChild(

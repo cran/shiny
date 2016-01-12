@@ -536,6 +536,25 @@ var InputDeferDecorator = function(target) {
   };
 }).call(InputDeferDecorator.prototype);
 
+var InputEventDecorator = function(target) {
+  this.target = target;
+};
+(function() {
+  this.setInput = function(name, value, immediate) {
+    var evt = jQuery.Event("shiny:inputchanged");
+    var name2 = name.split(':');
+    evt.name = name2[0];
+    evt.inputType = name2.length > 1 ? name2[1] : '';
+    evt.value = value;
+    $(document).trigger(evt);
+    if (!evt.isDefaultPrevented()) {
+      name = evt.name;
+      if (evt.inputType !== '') name += ':' + evt.inputType;
+      this.target.setInput(name, evt.value, immediate);
+    }
+  };
+}).call(InputEventDecorator.prototype);
+
 var InputRateDecorator = function(target) {
   this.target = target;
   this.inputRatePolicies = {};
@@ -800,8 +819,13 @@ var ShinyApp = function() {
     delete this.$values[name];
 
     var binding = this.$bindings[name];
-    if (binding && binding.onValueError) {
-      binding.onValueError(error);
+    var evt = jQuery.Event('shiny:error');
+    evt.name = name;
+    evt.error = error;
+    evt.binding = binding;
+    $(binding ? binding.el : document).trigger(evt);
+    if (!evt.isDefaultPrevented() && binding && binding.onValueError) {
+      binding.onValueError(evt.error);
     }
   };
 
@@ -813,8 +837,13 @@ var ShinyApp = function() {
     delete this.$errors[name];
 
     var binding = this.$bindings[name];
-    if (binding) {
-      binding.onValueChange(value);
+    var evt = jQuery.Event('shiny:value');
+    evt.name = name;
+    evt.value = value;
+    evt.binding = binding;
+    $(binding ? binding.el : document).trigger(evt);
+    if (!evt.isDefaultPrevented() && binding) {
+      binding.onValueChange(evt.value);
     }
 
     return value;
@@ -846,6 +875,10 @@ var ShinyApp = function() {
   };
 
   this.$updateConditionals = function() {
+    $(document).trigger({
+      type: 'shiny:conditional'
+    });
+
     var inputs = {};
 
     // Input keys use "name:type" format; we don't want the user to
@@ -940,8 +973,13 @@ var ShinyApp = function() {
   this.dispatchMessage = function(msg) {
     var msgObj = JSON.parse(msg);
 
+    var evt = jQuery.Event('shiny:message');
+    evt.message = msgObj;
+    $(document).trigger(evt);
+    if (evt.isDefaultPrevented()) return;
+
     // Send msgObj.foo and msgObj.bar to appropriate handlers
-    this._sendMessagesToHandlers(msgObj, messageHandlers, messageHandlerOrder);
+    this._sendMessagesToHandlers(evt.message, messageHandlers, messageHandlerOrder);
 
     this.$updateConditionals();
   };
@@ -954,7 +992,7 @@ var ShinyApp = function() {
     for (var i = 0; i < handlerOrder.length; i++) {
       var msgType = handlerOrder[i];
 
-      if (msgObj[msgType]) {
+      if (msgObj.hasOwnProperty(msgType)) {
         // Execute each handler with 'this' referring to the present value of
         // 'this'
         handlers[msgType].call(this, msgObj[msgType]);
@@ -965,7 +1003,6 @@ var ShinyApp = function() {
   // Message handlers =====================================================
 
   addMessageHandler('values', function(message) {
-    $(document.documentElement).removeClass('shiny-busy');
     for (var name in this.$bindings) {
       if (this.$bindings.hasOwnProperty(name))
         this.$bindings[name].showProgress(false);
@@ -992,7 +1029,13 @@ var ShinyApp = function() {
 
       // Dispatch the message to the appropriate input object
       if ($obj.length > 0) {
-        inputBinding.receiveMessage($obj[0], message[i].message);
+        var el = $obj[0];
+        var evt = jQuery.Event('shiny:updateinput');
+        evt.message = message[i].message;
+        evt.binding = inputBinding;
+        $(el).trigger(evt);
+        if (!evt.isDefaultPrevented())
+          inputBinding.receiveMessage(el, evt.message);
       }
     }
   });
@@ -1046,12 +1089,35 @@ var ShinyApp = function() {
   });
 
 
+  addCustomMessageHandler('busy', function(message) {
+    if (message === 'busy') {
+      $(document.documentElement).addClass('shiny-busy');
+      $(document).trigger('shiny:busy');
+    } else if (message === 'idle') {
+      $(document.documentElement).removeClass('shiny-busy');
+      $(document).trigger('shiny:idle');
+    }
+  });
+
+  addCustomMessageHandler('recalculating', function(message) {
+    if (message.hasOwnProperty('name') && message.hasOwnProperty('status')) {
+      var binding = this.$bindings[message.name];
+      $(binding ? binding.el : null).trigger({
+        type: 'shiny:' + message.status
+      });
+    }
+  });
+
+  addCustomMessageHandler('reload', function(message) {
+    window.location.reload();
+  });
+
+
   // Progress reporting ====================================================
 
   var progressHandlers = {
     // Progress for a particular object
     binding: function(message) {
-      $(document.documentElement).addClass('shiny-busy');
       var key = message.id;
       var binding = this.$bindings[key];
       if (binding && binding.showProgress) {
@@ -1345,6 +1411,8 @@ $.extend(imageOutputBinding, {
     // * Bind those event handlers to events.
     // * Insert the new image.
 
+    var outputId = this.getId(el);
+
     var $el = $(el);
     // Load the image before emptying, to minimize flicker
     var img = null;
@@ -1397,7 +1465,7 @@ $.extend(imageOutputBinding, {
     // Copy items from data to img. This should include 'src'
     $.each(data, function(key, value) {
       if (value !== null)
-        img[key] = value;
+        img.setAttribute(key, value);
     });
 
     var $img = $(img);
@@ -1460,7 +1528,7 @@ $.extend(imageOutputBinding, {
       $el.on('selectstart.image_output', function() { return false; });
 
       var brushHandler = imageutils.createBrushHandler(opts.brushId, $el, opts,
-        opts.coordmap);
+        opts.coordmap, outputId);
       $el.on('mousedown.image_output', brushHandler.mousedown);
       $el.on('mousemove.image_output', brushHandler.mousemove);
 
@@ -1924,13 +1992,32 @@ imageutils.createHoverHandler = function(inputId, delay, delayType, clip,
 
 // Returns a brush handler object. This has three public functions:
 // mousedown, mousemove, and onRemoveImg.
-imageutils.createBrushHandler = function(inputId, $el, opts, coordmap) {
+imageutils.createBrushHandler = function(inputId, $el, opts, coordmap, outputId) {
   // Parameter: expand the area in which a brush can be started, by this
   // many pixels in all directions. (This should probably be a brush option)
   var expandPixels = 20;
 
   // Represents the state of the brush
   var brush = imageutils.createBrush($el, opts, coordmap, expandPixels);
+
+  // Brush IDs can span multiple image/plot outputs. When an output is brushed,
+  // if a brush with the same ID is active on a different image/plot, it must
+  // be dismissed (but without sending any data to the server). We implement
+  // this by sending the shiny-internal:brushed event to all plots, and letting
+  // each plot decide for itself what to do.
+  //
+  // The decision to have the event sent to each plot (as opposed to a single
+  // event triggered on, say, the document) was made to make cleanup easier;
+  // listening on an event on the document would prevent garbage collection
+  // of plot outputs that are removed from the document.
+  $el.on("shiny-internal:brushed.image_output", function(e, coords) {
+    // If the new brush shares our ID but not our output element ID, we
+    // need to clear our brush (if any).
+    if (coords.brushId === inputId && coords.outputId !== outputId) {
+      $el.data("mostRecentBrush", false);
+      brush.reset();
+    }
+  });
 
   // Set cursor to one of 7 styles. We need to set the cursor on the whole
   // el instead of the brush div, because the brush div has
@@ -1948,6 +2035,10 @@ imageutils.createBrushHandler = function(inputId, $el, opts, coordmap) {
     // We're in a new or reset state
     if (isNaN(coords.xmin)) {
       exports.onInputChange(inputId, null);
+      // Must tell other brushes to clear.
+      imageOutputBinding.find(document).trigger("shiny-internal:brushed", {
+        brushId: inputId, outputId: null
+      });
       return;
     }
 
@@ -1966,8 +2057,14 @@ imageutils.createBrushHandler = function(inputId, $el, opts, coordmap) {
 
     coords.direction = opts.brushDirection;
 
+    coords.brushId = inputId;
+    coords.outputId = outputId;
+
     // Send data to server
     exports.onInputChange(inputId, coords);
+
+    $el.data("mostRecentBrush", true);
+    imageOutputBinding.find(document).trigger("shiny-internal:brushed", coords);
   }
 
   var brushInfoSender;
@@ -2134,17 +2231,26 @@ imageutils.createBrushHandler = function(inputId, $el, opts, coordmap) {
 
   }
 
+  // Brush maintenance: When an image is re-rendered, the brush must either
+  // be removed (if brushResetOnNew) or imported (if !brushResetOnNew). The
+  // "mostRecentBrush" bit is to ensure that when multiple outputs share the
+  // same brush ID, inactive brushes don't send null values up to the server.
+
   // This should be called when the img (not the el) is removed
   function onRemoveImg() {
     if (opts.brushResetOnNew) {
-      brush.reset();
-      brushInfoSender.immediateCall();
+      if ($el.data("mostRecentBrush")) {
+        brush.reset();
+        brushInfoSender.immediateCall();
+      }
     }
   }
 
   if (!opts.brushResetOnNew) {
-    brush.importOldBrush();
-    brushInfoSender.immediateCall();
+    if ($el.data("mostRecentBrush")) {
+      brush.importOldBrush();
+      brushInfoSender.immediateCall();
+    }
   }
 
   return {
@@ -2942,6 +3048,9 @@ var OutputBindingAdapter = function(el, binding) {
   }
 };
 (function() {
+  this.getId = function() {
+    return this.binding.getId(this.el);
+  };
   this.onValueChange = function(data) {
     this.binding.onValueChange(this.el, data);
   };
@@ -3150,6 +3259,14 @@ inputBindings.register(checkboxInputBinding, 'shiny.checkboxInput');
 //---------------------------------------------------------------------
 // Source file: ../srcjs/input_binding_slider.js
 
+// Necessary to get hidden sliders to send their updated values
+function forceIonSliderUpdate(slider) {
+  if (slider.$cache && slider.$cache.input)
+    slider.$cache.input.trigger('change');
+  else
+    console.log("Couldn't force ion slider to update");
+}
+
 var sliderInputBinding = {};
 $.extend(sliderInputBinding, textInputBinding, {
   find: function(scope) {
@@ -3204,6 +3321,7 @@ $.extend(sliderInputBinding, textInputBinding, {
     } else {
       slider.update({ from: value });
     }
+    forceIonSliderUpdate(slider);
   },
   subscribe: function(el, callback) {
     $(el).on('change.sliderInputBinding', function(event) {
@@ -3236,6 +3354,7 @@ $.extend(sliderInputBinding, textInputBinding, {
     $el.data('updating', true);
     try {
       slider.update(msg);
+      forceIonSliderUpdate(slider);
     } finally {
       $el.data('updating', false);
     }
@@ -3347,6 +3466,7 @@ $(document).on('click', '.slider-animate-button', function(evt) {
           val.to = val.from + (slider.result.to - slider.result.from);
 
         slider.update(val);
+        forceIonSliderUpdate(slider);
       };
       var sliderStep = function() {
         // Don't overshoot the end
@@ -3357,6 +3477,7 @@ $(document).on('click', '.slider-animate-button', function(evt) {
           val.to = Math.min(slider.result.max, slider.result.to + slider.options.step);
 
         slider.update(val);
+        forceIonSliderUpdate(slider);
       };
 
       // If we're currently at the end, restart
@@ -3762,6 +3883,7 @@ $.extend(selectInputBinding, {
     if (data.hasOwnProperty('url')) {
       selectize = this._selectize(el);
       selectize.clearOptions();
+      var thiz = this, loaded = false;
       selectize.settings.load = function(query, callback) {
         var settings = selectize.settings;
         $.ajax({
@@ -3769,6 +3891,7 @@ $.extend(selectInputBinding, {
           data: {
             query: query,
             field: JSON.stringify([settings.searchField]),
+            value: settings.valueField,
             conju: settings.searchConjunction,
             maxop: settings.maxOptions
           },
@@ -3778,6 +3901,9 @@ $.extend(selectInputBinding, {
           },
           success: function(res) {
             callback(res);
+            if (!loaded && data.hasOwnProperty('value'))
+              thiz.setValue(el, data.value);
+            loaded = true;
           }
         });
       };
@@ -3785,12 +3911,9 @@ $.extend(selectInputBinding, {
       selectize.load(function(callback) {
         selectize.settings.load.apply(selectize, ['', callback]);
       });
-      if (data.hasOwnProperty('selected'))
-        selectize.addOption(data.selected);
-    }
-
-    if (data.hasOwnProperty('value'))
+    } else if (data.hasOwnProperty('value')) {
       this.setValue(el, data.value);
+    }
 
     if (data.hasOwnProperty('label'))
       $(el).parent().parent().find('label[for="' + $escape(el.id) + '"]').text(data.label);
@@ -4297,7 +4420,9 @@ function uploadFiles(evt) {
     uploader.abort();
 
   var files = evt.target.files;
-  var IE8 = (browser.isIE && browser.IEVersion === 8);
+  // IE8 here does not necessarily mean literally IE8; it indicates if the web
+  // browser supports the FileList object (IE8/9 do not support it)
+  var IE8 = typeof(files) === 'undefined';
   var id = fileInputBinding.getId(evt.target);
 
   if (!IE8 && files.length === 0)
@@ -4373,6 +4498,11 @@ function initShiny() {
         shinyapp.bindOutput(id, bindingAdapter);
         $el.data('shiny-output-binding', bindingAdapter);
         $el.addClass('shiny-bound-output');
+        $el.trigger({
+          type: 'shiny:bound',
+          binding: binding,
+          bindingType: 'output'
+        });
       }
     }
 
@@ -4395,6 +4525,11 @@ function initShiny() {
       shinyapp.unbindOutput(id, bindingAdapter);
       $el.removeClass('shiny-bound-output');
       $el.removeData('shiny-output-binding');
+      $el.trigger({
+        type: 'shiny:unbound',
+        binding: bindingAdapter.binding,
+        bindingType: 'output'
+      });
     }
 
     setTimeout(sendOutputHiddenState, 0);
@@ -4402,8 +4537,9 @@ function initShiny() {
 
   var inputBatchSender = new InputBatchSender(shinyapp);
   var inputsNoResend = new InputNoResendDecorator(inputBatchSender);
-  var inputsRate = new InputRateDecorator(inputsNoResend);
-  var inputsDefer = new InputDeferDecorator(inputsNoResend);
+  var inputsEvent = new InputEventDecorator(inputsNoResend);
+  var inputsRate = new InputRateDecorator(inputsEvent);
+  var inputsDefer = new InputDeferDecorator(inputsEvent);
 
   // By default, use rate decorator
   var inputs = inputsRate;
@@ -4482,6 +4618,12 @@ function initShiny() {
           node: el
         };
 
+        $(el).trigger({
+          type: 'shiny:bound',
+          binding: binding,
+          bindingType: 'input'
+        });
+
         if (shinyapp.isConnected()) {
           valueChangeCallback(binding, el, false);
         }
@@ -4497,13 +4639,19 @@ function initShiny() {
 
     var inputs = $(scope).find('.shiny-bound-input');
     for (var i = 0; i < inputs.length; i++) {
-      var binding = $(inputs[i]).data('shiny-input-binding');
+      var el = inputs[i];
+      var binding = $(el).data('shiny-input-binding');
       if (!binding)
         continue;
-      var id = binding.getId(inputs[i]);
-      $(inputs[i]).removeClass('shiny-bound-input');
+      var id = binding.getId(el);
+      $(el).removeClass('shiny-bound-input');
       delete boundInputs[id];
-      binding.unsubscribe(inputs[i]);
+      binding.unsubscribe(el);
+      $(el).trigger({
+        type: 'shiny:unbound',
+        binding: binding,
+        bindingType: 'input'
+      });
     }
   }
 
@@ -4523,6 +4671,12 @@ function initShiny() {
     $.each(currentValues, function(name, value) {
       inputs.setInput(name, value);
     });
+
+    // Not sure if the iframe stuff is an intrinsic part of bindAll, but bindAll
+    // is a convenient place to hang it. bindAll will be called anytime new HTML
+    // appears that might contain inputs/outputs; it's reasonable to assume that
+    // any such HTML may contain iframes as well.
+    initDeferredIframes();
   };
   exports.unbindAll = unbindAll;
 
@@ -4547,6 +4701,15 @@ function initShiny() {
   }
   exports.initializeInputs = initializeInputs;
 
+  function getIdFromEl(el) {
+    var $el = $(el);
+    var bindingAdapter = $el.data("shiny-output-binding");
+    if (!bindingAdapter)
+      return null;
+    else
+      return bindingAdapter.getId();
+  }
+
 
   // Initialize all input objects in the document, before binding
   initializeInputs(document);
@@ -4557,20 +4720,28 @@ function initShiny() {
   // The server needs to know the size of each image and plot output element,
   // in case it is auto-sizing
   $('.shiny-image-output, .shiny-plot-output').each(function() {
+    var id = getIdFromEl(this);
     if (this.offsetWidth !== 0 || this.offsetHeight !== 0) {
-      initialValues['.clientdata_output_' + this.id + '_width'] = this.offsetWidth;
-      initialValues['.clientdata_output_' + this.id + '_height'] = this.offsetHeight;
+      initialValues['.clientdata_output_' + id + '_width'] = this.offsetWidth;
+      initialValues['.clientdata_output_' + id + '_height'] = this.offsetHeight;
     }
   });
   function doSendImageSize() {
     $('.shiny-image-output, .shiny-plot-output').each(function() {
+      var id = getIdFromEl(this);
       if (this.offsetWidth !== 0 || this.offsetHeight !== 0) {
-        inputs.setInput('.clientdata_output_' + this.id + '_width', this.offsetWidth);
-        inputs.setInput('.clientdata_output_' + this.id + '_height', this.offsetHeight);
+        inputs.setInput('.clientdata_output_' + id + '_width', this.offsetWidth);
+        inputs.setInput('.clientdata_output_' + id + '_height', this.offsetHeight);
       }
     });
     $('.shiny-bound-output').each(function() {
-      $(this).data('shiny-output-binding').onResize();
+      var $this = $(this), binding = $this.data('shiny-output-binding');
+      $this.trigger({
+        type: 'shiny:visualchange',
+        visible: !isHidden(this),
+        binding: binding
+      });
+      binding.onResize();
     });
   }
   var sendImageSizeDebouncer = new Debouncer(null, doSendImageSize, 0);
@@ -4600,25 +4771,34 @@ function initShiny() {
   var lastKnownVisibleOutputs = {};
   // Set initial state of outputs to hidden, if needed
   $('.shiny-bound-output').each(function() {
+    var id = getIdFromEl(this);
     if (isHidden(this)) {
-      initialValues['.clientdata_output_' + this.id + '_hidden'] = true;
+      initialValues['.clientdata_output_' + id + '_hidden'] = true;
     } else {
-      lastKnownVisibleOutputs[this.id] = true;
-      initialValues['.clientdata_output_' + this.id + '_hidden'] = false;
+      lastKnownVisibleOutputs[id] = true;
+      initialValues['.clientdata_output_' + id + '_hidden'] = false;
     }
   });
   // Send update when hidden state changes
   function doSendOutputHiddenState() {
     var visibleOutputs = {};
     $('.shiny-bound-output').each(function() {
-      delete lastKnownVisibleOutputs[this.id];
+      var id = getIdFromEl(this);
+      delete lastKnownVisibleOutputs[id];
       // Assume that the object is hidden when width and height are 0
-      if (isHidden(this)) {
-        inputs.setInput('.clientdata_output_' + this.id + '_hidden', true);
+      var hidden = isHidden(this), evt = {
+        type: 'shiny:visualchange',
+        visible: !hidden
+      };
+      if (hidden) {
+        inputs.setInput('.clientdata_output_' + id + '_hidden', true);
       } else {
-        visibleOutputs[this.id] = true;
-        inputs.setInput('.clientdata_output_' + this.id + '_hidden', false);
+        visibleOutputs[id] = true;
+        inputs.setInput('.clientdata_output_' + id + '_hidden', false);
       }
+      var $this = $(this);
+      evt.binding = $this.data('shiny-output-binding');
+      $this.trigger(evt);
     });
     // Anything left in lastKnownVisibleOutputs is orphaned
     for (var name in lastKnownVisibleOutputs) {
@@ -4719,12 +4899,49 @@ function initShiny() {
   // We've collected all the initial values--start the server process!
   inputsNoResend.reset(initialValues);
   shinyapp.connect(initialValues);
+  $(document).one("shiny:connected", function() {
+    initDeferredIframes();
+  });
 } // function initShiny()
+
+
+// Give any deferred iframes a chance to load.
+function initDeferredIframes() {
+  if (!window.Shiny || !window.Shiny.shinyapp || !window.Shiny.shinyapp.isConnected()) {
+    // If somehow we accidentally call this before the server connection is
+    // established, just ignore the call. At the time of this writing it
+    // doesn't happen, but it's easy to imagine a later refactoring putting
+    // us in this situation and it'd be hard to notice with either manual
+    // testing or automated tests, because the only effect is on HTTP request
+    // timing. (Update: Actually Aron saw this being called without even
+    // window.Shiny being defined, but it was hard to repro.)
+    return;
+  }
+
+  $(".shiny-frame-deferred").each(function (i, el) {
+    var $el = $(el);
+    $el.removeClass("shiny-frame-deferred");
+    $el.attr("src", $el.attr("data-deferred-src"));
+    $el.attr("data-deferred-src", null);
+  });
+}
 
 $(function() {
   // Init Shiny a little later than document ready, so user code can
   // run first (i.e. to register bindings)
   setTimeout(initShiny, 1);
+});
+
+//---------------------------------------------------------------------
+// Source file: ../srcjs/reactlog.js
+
+$(document).on('keydown', function(e) {
+  if (e.which !== 114 || (!e.ctrlKey && !e.metaKey) || (e.shiftKey || e.altKey))
+    return;
+  var url = 'reactlog?w=' + window.escape(exports.shinyapp.config.workerId) +
+    "&s=" + window.escape(exports.shinyapp.config.sessionId);
+  window.open(url);
+  e.preventDefault();
 });
 
 //---------------------------------------------------------------------

@@ -102,10 +102,18 @@ shinyAppDir <- function(appDir, options=list()) {
   if (file.exists.ci(appDir, "server.R")) {
     shinyAppDir_serverR(appDir, options = options)
   } else if (file.exists.ci(appDir, "app.R")) {
-    shinyAppDir_appR(appDir, options = options)
+    shinyAppDir_appR("app.R", appDir, options = options)
   } else {
     stop("App dir must contain either app.R or server.R.")
   }
+}
+
+#' @rdname shinyApp
+#' @param appFile Path to a .R file containing a Shiny application
+#' @export
+shinyAppFile <- function(appFile, options=list()) {
+  appFile <- normalizePath(appFile, mustWork = TRUE)
+  shinyAppDir_appR(basename(appFile), dirname(appFile), options = options)
 }
 
 # This reads in an app dir in the case that there's a server.R (and ui.R/www)
@@ -124,7 +132,7 @@ shinyAppDir_serverR <- function(appDir, options=list()) {
         # If not, then take the last expression that's returned from ui.R.
         .globals$ui <- NULL
         on.exit(.globals$ui <- NULL, add = FALSE)
-        ui <- sourceUTF8(uiR, local = new.env(parent = globalenv()))$value
+        ui <- sourceUTF8(uiR, envir = new.env(parent = globalenv()))
         if (!is.null(.globals$ui)) {
           ui <- .globals$ui[[1]]
         }
@@ -147,7 +155,7 @@ shinyAppDir_serverR <- function(appDir, options=list()) {
       # server.R.
       .globals$server <- NULL
       on.exit(.globals$server <- NULL, add = TRUE)
-      result <- sourceUTF8(serverR, local = new.env(parent = globalenv()))$value
+      result <- sourceUTF8(serverR, envir = new.env(parent = globalenv()))
       if (!is.null(.globals$server)) {
         result <- .globals$server[[1]]
       }
@@ -171,14 +179,18 @@ shinyAppDir_serverR <- function(appDir, options=list()) {
   }
 
   oldwd <- NULL
+  monitorHandle <- NULL
   onStart <- function() {
     oldwd <<- getwd()
     setwd(appDir)
+    monitorHandle <<- initAutoReloadMonitor(appDir)
     if (file.exists(file.path.ci(appDir, "global.R")))
       sourceUTF8(file.path.ci(appDir, "global.R"))
   }
   onEnd <- function() {
     setwd(oldwd)
+    monitorHandle()
+    monitorHandle <<- NULL
   }
 
   structure(
@@ -192,17 +204,63 @@ shinyAppDir_serverR <- function(appDir, options=list()) {
   )
 }
 
-# This reads in an app dir in the case that there's a app.R present, and returns
-# a shiny.appobj.
-shinyAppDir_appR <- function(appDir, options=list()) {
-  fullpath <- file.path.ci(appDir, "app.R")
+# Start a reactive observer that continually monitors dir for changes to files
+# that have the extensions: r, htm, html, js, css, png, jpg, jpeg, gif. Case is
+# ignored when checking extensions. If any changes are detected, all connected
+# Shiny sessions are reloaded.
+#
+# Use option(shiny.autoreload = TRUE) to enable this behavior. Since monitoring
+# for changes is expensive (we are polling for mtimes here, nothing fancy) this
+# feature is intended only for development.
+#
+# You can customize the file patterns Shiny will monitor by setting the
+# shiny.autoreload.pattern option. For example, to monitor only ui.R:
+# option(shiny.autoreload.pattern = glob2rx("ui.R"))
+#
+# The return value is a function that halts monitoring when called.
+initAutoReloadMonitor <- function(dir) {
+  if (!getOption("shiny.autoreload", FALSE)) {
+    return(function(){})
+  }
+
+  filePattern <- getOption("shiny.autoreload.pattern",
+    ".*\\.(r|html?|js|css|png|jpe?g|gif)$")
+
+  lastValue <- NULL
+  obs <- observe({
+    files <- sort(list.files(dir, pattern = filePattern, recursive = TRUE,
+      ignore.case = TRUE))
+    times <- file.info(files)$mtime
+    names(times) <- files
+
+    if (is.null(lastValue)) {
+      # First run
+      lastValue <<- times
+    } else if (!identical(lastValue, times)) {
+      # We've changed!
+      lastValue <<- times
+      for (session in appsByToken$values()) {
+        session$reload()
+      }
+    }
+
+    invalidateLater(getOption("shiny.autoreload.interval", 500))
+  })
+
+  obs$destroy
+}
+
+# This reads in an app dir for a single-file application (e.g. app.R), and
+# returns a shiny.appobj.
+shinyAppDir_appR <- function(fileName, appDir, options=list()) {
+  fullpath <- file.path.ci(appDir, fileName)
 
   # This sources app.R and caches the content. When appObj() is called but
   # app.R hasn't changed, it won't re-source the file. But if called and
   # app.R has changed, it'll re-source the file and return the result.
-  appObj <- cachedFuncWithFile(appDir, "app.R", case.sensitive = FALSE,
+  appObj <- cachedFuncWithFile(appDir, fileName, case.sensitive = FALSE,
     function(appR) {
-      result <- sourceUTF8(fullpath, local = new.env(parent = globalenv()))$value
+      result <- sourceUTF8(fullpath, envir = new.env(parent = globalenv()))
 
       if (!is.shiny.appobj(result))
         stop("app.R did not return a shiny.appobj object.")
@@ -225,12 +283,16 @@ shinyAppDir_appR <- function(appDir, options=list()) {
   fallbackWWWDir <- system.file("www-dir", package = "shiny")
 
   oldwd <- NULL
+  monitorHandle <- NULL
   onStart <- function() {
     oldwd <<- getwd()
     setwd(appDir)
+    monitorHandle <<- initAutoReloadMonitor(appDir)
   }
   onEnd <- function() {
     setwd(oldwd)
+    monitorHandle()
+    monitorHandle <<- NULL
   }
 
   structure(
@@ -268,7 +330,10 @@ as.shiny.appobj.list <- function(x) {
 #' @rdname shinyApp
 #' @export
 as.shiny.appobj.character <- function(x) {
-  shinyAppDir(x)
+  if (identical(tolower(tools::file_ext(x)), "r"))
+    shinyAppFile(x)
+  else
+    shinyAppDir(x)
 }
 
 #' @rdname shinyApp
@@ -302,7 +367,20 @@ as.tags.shiny.appobj <- function(x, ...) {
   height <- if (is.null(opts$height)) "400" else opts$height
 
   path <- addSubApp(x)
-  tags$iframe(src=path, width=width, height=height, class="shiny-frame")
+  deferredIFrame(path, width, height)
+}
+
+# Generate subapp iframes in such a way that they will not actually load right
+# away. Loading subapps immediately upon app load can result in a storm of
+# connections, all of which are contending for the few concurrent connections
+# that a browser will make to a specific origin. Instead, we load dummy iframes
+# and let the client load them when convenient. (See the initIframes function in
+# init_shiny.js.)
+deferredIFrame <- function(path, width, height) {
+  tags$iframe("data-deferred-src" = path,
+    width = width, height = height,
+    class = "shiny-frame shiny-frame-deferred"
+  )
 }
 
 #' Knitr S3 methods
@@ -353,8 +431,7 @@ knit_print.shiny.appobj <- function(x, ...) {
   }
   else {
     path <- addSubApp(x)
-    output <- tags$iframe(src=path, width=width, height=height,
-                          class="shiny-frame")
+    output <- deferredIFrame(path, width, height)
   }
 
   # If embedded Shiny apps ever have JS/CSS dependencies (like pym.js) we'll
@@ -377,4 +454,15 @@ knit_print.shiny.render.function <- function(x, ..., inline = FALSE) {
   attr(output, "knit_meta") <- append(attr(output, "knit_meta"),
                                       shiny_rmd_warning())
   output
+}
+
+# Lets us drop reactive expressions directly into a knitr chunk and have the
+# value printed out! Nice for teaching if nothing else.
+#' @rdname knitr_methods
+#' @export
+knit_print.reactive <- function(x, ..., inline = FALSE) {
+  renderFunc <- if (inline) renderText else renderPrint
+  knitr::knit_print(renderFunc({
+    x()
+  }), inline = inline)
 }

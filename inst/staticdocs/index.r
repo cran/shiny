@@ -5,6 +5,8 @@ sd_section("UI Layout",
     "bootstrapPage",
     "column",
     "conditionalPanel",
+    "fillPage",
+    "fillRow",
     "fixedPage",
     "fluidPage",
     "headerPanel",
@@ -78,7 +80,10 @@ sd_section("Interface builder functions",
     "singleton",
     "tag",
     "validateCssUnit",
-    "withTags"
+    "withTags",
+    "htmlTemplate",
+    "bootstrapLib",
+    "suppressDependencies"
   )
 )
 sd_section("Rendering functions",
@@ -129,9 +134,12 @@ sd_section("Running",
   "Functions that are used to run or stop Shiny applications.",
   c(
     "runApp",
+    "runGadget",
     "runExample",
+    "runGadget",
     "runUrl",
-    "stopApp"
+    "stopApp",
+    "viewer"
   )
 )
 sd_section("Extending Shiny",
@@ -147,6 +155,7 @@ sd_section("Extending Shiny",
 sd_section("Utility functions",
   "Miscellaneous utilities that may be useful to advanced users or when extending Shiny.",
   c(
+    "req",
     "validate",
     "session",
     "exprToFunction",
@@ -168,6 +177,13 @@ sd_section("Plot interaction",
     "dblclickOpts",
     "hoverOpts",
     "nearPoints"
+  )
+)
+sd_section("Modules",
+  "Functions for modularizing Shiny apps",
+  c(
+    "NS",
+    "callModule"
   )
 )
 sd_section("Embedding",

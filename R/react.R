@@ -21,10 +21,8 @@ Context <- R6Class(
       withReactiveDomain(.domain, {
         env <- .getReactiveEnvironment()
         .graphEnterContext(id)
-        tryCatch(
-          env$runWith(self, func),
-          finally = .graphExitContext(id)
-        )
+        on.exit(.graphExitContext(id), add = TRUE)
+        env$runWith(self, func)
       })
     },
     invalidate = function() {
@@ -54,6 +52,9 @@ Context <- R6Class(
     addPendingFlush = function(priority) {
       "Tell the reactive environment that this context should be flushed the
         next time flushReact() called."
+      if (!is.null(.domain)) {
+        .domain$incrementBusyCount()
+      }
       .getReactiveEnvironment()$addPendingFlush(self, priority)
     },
     onFlush = function(func) {
@@ -62,8 +63,15 @@ Context <- R6Class(
     },
     executeFlushCallbacks = function() {
       "For internal use only."
-      lapply(.flushCallbacks, function(func) {
-        func()
+
+      on.exit({
+        if (!is.null(.domain)) {
+          .domain$decrementBusyCount()
+        }
+      }, add = TRUE)
+
+      lapply(.flushCallbacks, function(flushCallback) {
+        flushCallback()
       })
     }
   )
@@ -98,11 +106,11 @@ ReactiveEnvironment <- R6Class(
       }
       return(.currentContext)
     },
-    runWith = function(ctx, func) {
+    runWith = function(ctx, contextFunc) {
       old.ctx <- .currentContext
       .currentContext <<- ctx
       on.exit(.currentContext <<- old.ctx)
-      shinyCallingHandlers(func())
+      contextFunc()
     },
     addPendingFlush = function(ctx, priority) {
       .pendingFlush$enqueue(ctx, priority)

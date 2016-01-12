@@ -285,7 +285,7 @@ updateSliderInput <- function(session, inputId, label = NULL, value = NULL,
     stop("Type mismatch for value, min, and max")
   }
 
-  if (type == "date" || type == "datetime") {
+  if ((length(type) == 1) && (type == "date" || type == "datetime")) {
     to_ms <- function(x) 1000 * as.numeric(as.POSIXct(x))
     if (!is.null(min))   min   <- to_ms(min)
     if (!is.null(max))   max   <- to_ms(max)
@@ -306,15 +306,16 @@ updateSliderInput <- function(session, inputId, label = NULL, value = NULL,
 updateInputOptions <- function(session, inputId, label = NULL, choices = NULL,
                                selected = NULL, inline = FALSE,
                                type = 'checkbox') {
-
-  choices <- choicesWithNames(choices)
+  if (!is.null(choices))
+    choices <- choicesWithNames(choices)
   if (!is.null(selected))
     selected <- validateSelected(selected, choices, inputId)
 
-  options <- if (length(choices))
+  options <- if (!is.null(choices)) {
     format(tagList(
       generateOptions(inputId, choices, selected, inline, type = type)
     ))
+  }
 
   message <- dropNulls(list(label = label, options = options, value = selected))
 
@@ -474,13 +475,10 @@ updateSelectizeInput <- function(session, inputId, label = NULL, choices = NULL,
     return(updateSelectInput(session, inputId, label, choices, selected))
   }
   value <- unname(selected)
-  selected <- choicesWithNames(selected)
+  attr(choices, 'selected_value') <- value
   message <- dropNulls(list(
     label = label,
     value = value,
-    selected = if (length(selected)) {
-      columnToRowData(list(label = names(selected), value = selected))
-    },
     url = session$registerDataObj(inputId, choices, selectizeJSON)
   ))
   session$sendInputMessage(inputId, message)
@@ -494,7 +492,9 @@ selectizeJSON <- function(data, req) {
   # all keywords in lower-case, for case-insensitive matching
   key <- unique(strsplit(tolower(query$query), '\\s+')[[1]])
   if (identical(key, '')) key <- character(0)
-  mop <- query$maxop
+  mop <- as.numeric(query$maxop)
+  vfd <- query$value  # the value field name
+  sel <- attr(data, 'selected_value', exact = TRUE)
 
   # convert a single vector to a data frame so it returns {label: , value: }
   # later in JSON; other objects return arbitrary JSON {x: , y: , foo: , ...}
@@ -518,6 +518,11 @@ selectizeJSON <- function(data, req) {
   }
   # only return the first n rows (n = maximum options in configuration)
   idx <- utils::head(if (length(key)) which(idx) else seq_along(idx), mop)
+  # make sure the selected value is in the data
+  if (length(sel)) {
+    i <- stats::na.omit(match(sel, data[, vfd]))
+    if (length(i)) idx <- sort(utils::head(unique(c(i, idx)), mop))
+  }
   data <- data[idx, ]
 
   res <- toJSON(columnToRowData(data))

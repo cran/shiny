@@ -33,26 +33,6 @@ bootstrapPage <- function(..., title = NULL, responsive = NULL, theme = NULL) {
     shinyDeprecated("The 'responsive' argument is no longer used with Bootstrap 3.")
   }
 
-  # required head tags for boostrap
-  importBootstrap <- function() {
-    list(
-      htmlDependency("bootstrap", "3.3.1",
-        c(
-          href = "shared/bootstrap",
-          file = system.file("www/shared/bootstrap", package = "shiny")
-        ),
-        script = c(
-          "js/bootstrap.min.js",
-          # These shims are necessary for IE 8 compatibility
-          "shim/html5shiv.min.js",
-          "shim/respond.min.js"
-        ),
-        stylesheet = if (is.null(theme)) "css/bootstrap.min.css",
-        meta = list(viewport = "width=device-width, initial-scale=1")
-      )
-    )
-  }
-
   attachDependencies(
     tagList(
       if (!is.null(title)) tags$head(tags$title(title)),
@@ -63,7 +43,41 @@ bootstrapPage <- function(..., title = NULL, responsive = NULL, theme = NULL) {
       # remainder of tags passed to the function
       list(...)
     ),
-    importBootstrap()
+    bootstrapDependency()
+  )
+}
+
+#' Bootstrap libraries
+#'
+#' This function returns a set of web dependencies necessary for using Bootstrap
+#' components in a web page.
+#'
+#' It isn't necessary to call this function if you use
+#' \code{\link{bootstrapPage}} or others which use \code{bootstrapPage}, such
+#' \code{\link{basicPage}}, \code{\link{fluidPage}}, \code{\link{fillPage}},
+#' \code{\link{pageWithSidebar}}, and \code{\link{navbarPage}}, because they
+#' already include the Bootstrap web dependencies.
+#'
+#' @inheritParams bootstrapPage
+#' @export
+bootstrapLib <- function(theme = NULL) {
+  attachDependencies(tagList(), bootstrapDependency(theme))
+}
+
+bootstrapDependency <- function(theme = NULL) {
+  htmlDependency("bootstrap", "3.3.5",
+    c(
+      href = "shared/bootstrap",
+      file = system.file("www/shared/bootstrap", package = "shiny")
+    ),
+    script = c(
+      "js/bootstrap.min.js",
+      # These shims are necessary for IE 8 compatibility
+      "shim/html5shiv.min.js",
+      "shim/respond.min.js"
+    ),
+    stylesheet = if (is.null(theme)) "css/bootstrap.min.css",
+    meta = list(viewport = "width=device-width, initial-scale=1")
   )
 }
 
@@ -71,6 +85,103 @@ bootstrapPage <- function(..., title = NULL, responsive = NULL, theme = NULL) {
 #' @export
 basicPage <- function(...) {
   bootstrapPage(div(class="container-fluid", list(...)))
+}
+
+
+#' Create a page that fills the window
+#'
+#' \code{fillPage} creates a page whose height and width always fill the
+#' available area of the browser window.
+#'
+#' The \code{\link{fluidPage}} and \code{\link{fixedPage}} functions are used
+#' for creating web pages that are laid out from the top down, leaving
+#' whitespace at the bottom if the page content's height is smaller than the
+#' browser window, and scrolling if the content is larger than the window.
+#'
+#' \code{fillPage} is designed to latch the document body's size to the size of
+#' the window. This makes it possible to fill it with content that also scales
+#' to the size of the window.
+#'
+#' For example, \code{fluidPage(plotOutput("plot", height = "100\%"))} will not
+#' work as expected; the plot element's effective height will be \code{0},
+#' because the plot's containing elements (\code{<div>} and \code{<body>}) have
+#' \emph{automatic} height; that is, they determine their own height based on
+#' the height of their contained elements. However,
+#' \code{fillPage(plotOutput("plot", height = "100\%"))} will work because
+#' \code{fillPage} fixes the \code{<body>} height at 100\% of the window height.
+#'
+#' Note that \code{fillPage(plotOutput("plot"))} will not cause the plot to fill
+#' the page. Like most Shiny output widgets, \code{plotOutput}'s default height
+#' is a fixed number of pixels. You must explicitly set \code{height = "100\%"}
+#' if you want a plot (or htmlwidget, say) to fill its container.
+#'
+#' One must be careful what layouts/panels/elements come between the
+#' \code{fillPage} and the plots/widgets. Any container that has an automatic
+#' height will cause children with \code{height = "100\%"} to misbehave. Stick
+#' to functions that are designed for fill layouts, such as the ones in this
+#' package.
+#'
+#' @param ... Elements to include within the page.
+#' @param padding Padding to use for the body. This can be a numeric vector
+#'   (which will be interpreted as pixels) or a character vector with valid CSS
+#'   lengths. The length can be between one and four. If one, then that value
+#'   will be used for all four sides. If two, then the first value will be used
+#'   for the top and bottom, while the second value will be used for left and
+#'   right. If three, then the first will be used for top, the second will be
+#'   left and right, and the third will be bottom. If four, then the values will
+#'   be interpreted as top, right, bottom, and left respectively.
+#' @param title The title to use for the browser window/tab (it will not be
+#'   shown in the document).
+#' @param bootstrap If \code{TRUE}, load the Bootstrap CSS library.
+#' @param theme URL to alternative Bootstrap stylesheet.
+#'
+#' @examples
+#' fillPage(
+#'   tags$style(type = "text/css",
+#'     ".half-fill { width: 50%; height: 100%; }",
+#'     "#one { float: left; background-color: #ddddff; }",
+#'     "#two { float: right; background-color: #ccffcc; }"
+#'   ),
+#'   div(id = "one", class = "half-fill",
+#'     "Left half"
+#'   ),
+#'   div(id = "two", class = "half-fill",
+#'     "Right half"
+#'   ),
+#'   padding = 10
+#' )
+#'
+#' fillPage(
+#'   fillRow(
+#'     div(style = "background-color: red; width: 100%; height: 100%;"),
+#'     div(style = "background-color: blue; width: 100%; height: 100%;")
+#'   )
+#' )
+#'
+#' @export
+fillPage <- function(..., padding = 0, title = NULL, bootstrap = TRUE,
+  theme = NULL) {
+
+  fillCSS <- tags$head(tags$style(type = "text/css",
+    "html, body { width: 100%; height: 100%; overflow: hidden; }",
+    sprintf("body { padding: %s; margin: 0; }", collapseSizes(padding))
+  ))
+
+  if (isTRUE(bootstrap)) {
+    bootstrapPage(title = title, theme = theme, fillCSS, ...)
+  } else {
+    tagList(
+      fillCSS,
+      if (!is.null(title)) tags$head(tags$title(title)),
+      ...
+    )
+  }
+}
+
+collapseSizes <- function(padding) {
+  paste(
+    sapply(padding, shiny::validateCssUnit, USE.NAMES = FALSE),
+    collapse = " ")
 }
 
 #' Create a page with a sidebar
@@ -764,6 +875,7 @@ verbatimTextOutput <- function(outputId) {
 }
 
 
+#' @name plotOutput
 #' @rdname plotOutput
 #' @export
 imageOutput <- function(outputId, width = "100%", height="400px",
@@ -872,10 +984,16 @@ imageOutput <- function(outputId, width = "100%", height="400px",
 #'   \code{brush}.
 #'
 #'   For \code{plotOutput}, the coordinates will be sent scaled to the data
-#'   space, if possible. (At the moment, plots generated by base graphics
-#'   support this scaling, although plots generated by grid or ggplot2 do not.)
-#'   If scaling is not possible, the raw pixel coordinates will be sent. For
-#'   \code{imageOutput}, the coordinates will be sent in raw pixel coordinates.
+#'   space, if possible. (At the moment, plots generated by base graphics and
+#'   ggplot2 support this scaling, although plots generated by lattice and
+#'   others do not.) If scaling is not possible, the raw pixel coordinates will
+#'   be sent. For \code{imageOutput}, the coordinates will be sent in raw pixel
+#'   coordinates.
+#'
+#'   With ggplot2 graphics, the code in \code{renderPlot} should return a ggplot
+#'   object; if instead the code prints the ggplot2 object with something like
+#'   \code{print(p)}, then the coordinates for interactive graphics will not be
+#'   properly scaled to the data space.
 #'
 #' @param outputId output variable to read the plot/image from.
 #' @param width,height Image width/height. Must be a valid CSS unit (like
@@ -889,8 +1007,8 @@ imageOutput <- function(outputId, width = "100%", height="400px",
 #'   created by the \code{\link{clickOpts}} function. If you use a value like
 #'   \code{"plot_click"} (or equivalently, \code{clickOpts(id="plot_click")}),
 #'   the plot will send coordinates to the server whenever it is clicked, and
-#'   the value will be accessible via \code{input$plot_click}. The value will
-#'   be a named list  with \code{x} and \code{y} elements indicating the mouse
+#'   the value will be accessible via \code{input$plot_click}. The value will be
+#'   a named list  with \code{x} and \code{y} elements indicating the mouse
 #'   position.
 #' @param dblclick This is just like the \code{click} argument, but for
 #'   double-click events.
@@ -921,7 +1039,10 @@ imageOutput <- function(outputId, width = "100%", height="400px",
 #'   be able to draw a rectangle in the plotting area and drag it around. The
 #'   value will be a named list with \code{xmin}, \code{xmax}, \code{ymin}, and
 #'   \code{ymax} elements indicating the brush area. To control the brush
-#'   behavior, use \code{\link{brushOpts}}.
+#'   behavior, use \code{\link{brushOpts}}. Multiple
+#'   \code{imageOutput}/\code{plotOutput} calls may share the same \code{id}
+#'   value; brushing one image or plot will cause any other brushes with the
+#'   same \code{id} to disappear.
 #' @inheritParams textOutput
 #' @note The arguments \code{clickId} and \code{hoverId} only work for R base
 #'   graphics (see the \pkg{\link{graphics}} package). They do not work for
@@ -1329,7 +1450,7 @@ icon <- function(name, class = NULL, lib = "font-awesome") {
   # font-awesome needs an additional dependency (glyphicon is in bootstrap)
   if (lib == "font-awesome") {
     htmlDependencies(iconTag) <- htmlDependency(
-      "font-awesome", "4.2.0", c(href="shared/font-awesome"),
+      "font-awesome", "4.5.0", c(href="shared/font-awesome"),
       stylesheet = "css/font-awesome.min.css"
     )
   }

@@ -248,23 +248,49 @@ download <- function(url, ...) {
   # First, check protocol. If http or https, check platform:
   if (grepl('^https?://', url)) {
 
-    # If Windows, call setInternet2, then use download.file with defaults.
-    if (isWindows()) {
-      # If we directly use setInternet2, R CMD CHECK gives a Note on Mac/Linux
-      mySI2 <- `::`(utils, 'setInternet2')
-      # Store initial settings
-      internet2_start <- mySI2(NA)
-      on.exit(mySI2(internet2_start))
+    # Check whether we are running R 3.2
+    isR32 <- getRversion() >= "3.2"
 
-      # Needed for https
-      mySI2(TRUE)
-      utils::download.file(url, ...)
+    # Windows
+    if (.Platform$OS.type == "windows") {
+
+      if (isR32) {
+        method <- "wininet"
+      } else {
+
+        # If we directly use setInternet2, R CMD CHECK gives a Note on Mac/Linux
+        seti2 <- `::`(utils, 'setInternet2')
+
+        # Check whether we are already using internet2 for internal
+        internet2_start <- seti2(NA)
+
+        # If not then temporarily set it
+        if (!internet2_start) {
+          # Store initial settings, and restore on exit
+          on.exit(suppressWarnings(seti2(internet2_start)))
+
+          # Needed for https. Will get warning if setInternet2(FALSE) already run
+          # and internet routines are used. But the warnings don't seem to matter.
+          suppressWarnings(seti2(TRUE))
+        }
+
+        method <- "internal"
+      }
+
+      # download.file will complain about file size with something like:
+      #       Warning message:
+      #         In download.file(url, ...) : downloaded length 19457 != reported length 200
+      # because apparently it compares the length with the status code returned (?)
+      # so we supress that
+      suppressWarnings(utils::download.file(url, method = method, ...))
 
     } else {
-      # If non-Windows, check for curl/wget/lynx, then call download.file with
+      # If non-Windows, check for libcurl/curl/wget/lynx, then call download.file with
       # appropriate method.
 
-      if (nzchar(Sys.which("wget")[1])) {
+      if (isR32 && capabilities("libcurl")) {
+        method <- "libcurl"
+      } else if (nzchar(Sys.which("wget")[1])) {
         method <- "wget"
       } else if (nzchar(Sys.which("curl")[1])) {
         method <- "curl"
@@ -404,13 +430,25 @@ exprToFunction <- function(expr, env=parent.frame(2), quoted=FALSE,
 #' @param assign.env The environment in which the function should be assigned.
 #' @param label A label for the object to be shown in the debugger. Defaults to
 #'   the name of the calling function.
+#' @param wrappedWithLabel,..stacktraceon Advanced use only. For stack manipulation purposes; see
+#'   \code{\link{stacktrace}}.
 #'
 #' @export
 installExprFunction <- function(expr, name, eval.env = parent.frame(2),
                                 quoted = FALSE,
                                 assign.env = parent.frame(1),
-                                label = as.character(sys.call(-1)[[1]])) {
+                                label = deparse(sys.call(-1)[[1]]),
+                                wrappedWithLabel = TRUE,
+                                ..stacktraceon = FALSE) {
   func <- exprToFunction(expr, eval.env, quoted, 2)
+  if (length(label) > 1) {
+    # Just in case the deparsed code is more complicated than we imagine. If we
+    # have a label with length > 1 it causes warnings in wrapFunctionLabel.
+    label <- paste0(label, collapse = "\n")
+  }
+  if (wrappedWithLabel) {
+    func <- wrapFunctionLabel(func, label, ..stacktraceon = ..stacktraceon)
+  }
   assign(name, func, envir = assign.env)
   registerDebugHook(name, assign.env, label)
 }
@@ -432,10 +470,10 @@ installExprFunction <- function(expr, name, eval.env = parent.frame(2),
 #'
 #' \dontrun{
 #' # Example of usage within a Shiny app
-#' shinyServer(function(input, output, clientData) {
+#' shinyServer(function(input, output, session) {
 #'
 #'   output$queryText <- renderText({
-#'     query <- parseQueryString(clientData$url_search)
+#'     query <- parseQueryString(session$clientData$url_search)
 #'
 #'     # Ways of accessing the values
 #'     if (as.numeric(query$foo) == 1) {
@@ -498,11 +536,18 @@ assignNestedList <- function(x = list(), idx, value) {
 
 # decide what to do in case of errors; it is customizable using the shiny.error
 # option (e.g. we can set options(shiny.error = recover))
+#' @include conditions.R
 shinyCallingHandlers <- function(expr) {
-  withCallingHandlers(expr, error = function(e) {
-    handle <- getOption('shiny.error')
-    if (is.function(handle)) handle()
-  })
+  withCallingHandlers(captureStackTraces(expr),
+    error = function(e) {
+      # Don't intercept shiny.silent.error (i.e. validation errors)
+      if (inherits(e, "shiny.silent.error"))
+        return()
+
+      handle <- getOption('shiny.error')
+      if (is.function(handle)) handle()
+    }
+  )
 }
 
 #' Print message for deprecated functions in Shiny
@@ -579,16 +624,28 @@ Callbacks <- R6Class(
         .callbacks$remove(id)
       })
     },
-    invoke = function(..., onError=NULL) {
+    invoke = function(..., onError=NULL, ..stacktraceon = FALSE) {
       # Ensure that calls are invoked in the order that they were registered
       keys <- as.character(sort(as.integer(.callbacks$keys()), decreasing = TRUE))
       callbacks <- .callbacks$mget(keys)
 
       for (callback in callbacks) {
         if (is.null(onError)) {
-          callback(...)
+          if (..stacktraceon) {
+            ..stacktraceon..(callback(...))
+          } else {
+            callback(...)
+          }
         } else {
-          tryCatch(callback(...), error = onError)
+          tryCatch(
+            captureStackTraces(
+              if (..stacktraceon)
+                ..stacktraceon..(callback(...))
+              else
+                callback(...)
+            ),
+            error = onError
+          )
         }
       }
     },
@@ -923,6 +980,105 @@ need <- function(expr, message = paste(label, "must be provided"), label) {
     return(invisible(NULL))
 }
 
+#' Check for required values
+#'
+#' Ensure that values are available ("truthy"--see Details) before proceeding
+#' with a calculation or action. If any of the given values is not truthy, the
+#' operation is stopped by raising a "silent" exception (not logged by Shiny,
+#' nor displayed in the Shiny app's UI).
+#'
+#' The \code{req} function was designed to be used in one of two ways. The first
+#' is to call it like a statement (ignoring its return value) before attempting
+#' operations using the required values:
+#'
+#' \preformatted{rv <- reactiveValues(state = FALSE)
+#' r <- reactive({
+#'   req(input$a, input$b, rv$state)
+#'   # Code that uses input$a, input$b, and/or rv$state...
+#' })}
+#'
+#' In this example, if \code{r()} is called and any of \code{input$a},
+#' \code{input$b}, and \code{rv$state} are \code{NULL}, \code{FALSE}, \code{""},
+#' etc., then the \code{req} call will trigger an error that propagates all the
+#' way up to whatever render block or observer is executing.
+#'
+#' The second is to use it to wrap an expression that must be truthy:
+#'
+#' \preformatted{output$plot <- renderPlot({
+#'   if (req(input$plotType) == "histogram") {
+#'     hist(dataset())
+#'   } else if (input$plotType == "scatter") {
+#'     qplot(dataset(), aes(x = x, y = y))
+#'   }
+#' })}
+#'
+#' In this example, \code{req(input$plotType)} first checks that
+#' \code{input$plotType} is truthy, and if so, returns it. This is a convenient
+#' way to check for a value "inline" with its first use.
+#'
+#' \strong{Truthy and falsy values}
+#'
+#' The terms "truthy" and "falsy" generally indicate whether a value, when
+#' coerced to a \code{\link{logical}}, is \code{TRUE} or \code{FALSE}. We use
+#' the term a little loosely here; our usage tries to match the intuitive
+#' notions of "Is this value missing or available?", or "Has the user provided
+#' an answer?", or in the case of action buttons, "Has the button been
+#' clicked?".
+#'
+#' For example, a \code{textInput} that has not been filled out by the user has
+#' a value of \code{""}, so that is considered a falsy value.
+#'
+#' To be precise, \code{req} considers a value truthy \emph{unless} it is one
+#' of:
+#'
+#' \itemize{
+#'   \item{\code{FALSE}}
+#'   \item{\code{NULL}}
+#'   \item{\code{""}}
+#'   \item{An empty atomic vector}
+#'   \item{An atomic vector that contains only missing values}
+#'   \item{A logical vector that contains all \code{FALSE} or missing values}
+#'   \item{An object of class \code{"try-error"}}
+#'   \item{A value that represents an unclicked \code{\link{actionButton}}}
+#' }
+#'
+#' Note in particular that the value \code{0} is considered truthy, even though
+#' \code{as.logical(0)} is \code{FALSE}.
+#'
+#' If the built-in rules for truthiness do not match your requirements, you can
+#' always work around them. Since \code{FALSE} is falsy, you can simply provide
+#' the results of your own checks to \code{req}:
+#'
+#' \code{req(input$a != 0)}
+#'
+#' @param ... Values to check for truthiness.
+#' @return The first value that was passed in.
+#'
+#' @export
+req <- function(...) {
+  dotloop(function(item) {
+    if (!isTruthy(item))
+      stopWithCondition("validation", "")
+  }, ...)
+
+  if (!missing(..1))
+    ..1
+  else
+    invisible()
+}
+
+# Execute a function against each element of ..., but only evaluate each element
+# after the previous element has been passed to fun_. The return value of fun_
+# is discarded, and only invisible() is returned from dotloop.
+#
+# Can be used to facilitate short-circuit eval on dots.
+dotloop <- function(fun_, ...) {
+  for (i in 1:(nargs()-1)) {
+    fun_(eval(as.symbol(paste0("..", i))))
+  }
+  invisible()
+}
+
 isTruthy <- function(x) {
   if (inherits(x, 'try-error'))
     return(FALSE)
@@ -979,8 +1135,7 @@ setServerInfo <- function(...) {
   .globals$serverInfo <- infoOld
 }
 
-# see if the file can be read as UTF-8 on Windows, and converted from UTF-8 to
-# native encoding; if the conversion fails, it will produce NA's in the results
+# assume file is encoded in UTF-8, but warn against BOM
 checkEncoding <- function(file) {
   # skip *nix because its locale is normally UTF-8 based (e.g. en_US.UTF-8), and
   # *nix users have to make a conscious effort to save a file with an encoding
@@ -989,14 +1144,10 @@ checkEncoding <- function(file) {
   # world of consistency (falling back to getOption('encoding') will not help
   # because native.enc is also normally UTF-8 based on *nix)
   if (!isWindows()) return('UTF-8')
-  # an empty file?
   size <- file.info(file)[, 'size']
-  if (size == 0) return('UTF-8')
-
-  x <- readLines(file, encoding = 'UTF-8', warn = FALSE)
-  # if conversion is successful and there are no embedded nul's, use UTF-8
-  if (!any(is.na(iconv(x, 'UTF-8'))) &&
-        !any(readBin(file, 'raw', size) == as.raw(0))) return('UTF-8')
+  if (is.na(size)) stop('Cannot access the file ', file)
+  # BOM is 3 bytes, so if the file contains BOM, it must be at least 3 bytes
+  if (size < 3L) return('UTF-8')
 
   # check if there is a BOM character: this is also skipped on *nix, because R
   # on *nix simply ignores this meaningless character if present, but it hurts
@@ -1005,44 +1156,100 @@ checkEncoding <- function(file) {
     warning('You should not include the Byte Order Mark (BOM) in ', file, '. ',
             'Please re-save it in UTF-8 without BOM. See ',
             'http://shiny.rstudio.com/articles/unicode.html for more info.')
-    if (getRversion() < '3.0.0')
-      stop('R does not support UTF-8-BOM before 3.0.0. Please upgrade R.')
     return('UTF-8-BOM')
   }
-
-  enc <- getOption('encoding')
-  msg <- c(sprintf('The file "%s" is not encoded in UTF-8. ', file),
-           'Please convert its encoding to UTF-8 ',
-           '(e.g. use the menu `File -> Save with Encoding` in RStudio). ',
-           'See http://shiny.rstudio.com/articles/unicode.html for more info.')
-  if (enc == 'UTF-8') stop(msg)
-  # if you publish the app to ShinyApps.io, you will be in trouble
-  warning(c(msg, ' Falling back to the encoding "', enc, '".'))
-
-  enc
+  'UTF-8'
 }
 
-# try to read a file using UTF-8 (fall back to getOption('encoding') in case of
-# failure, which defaults to native.enc, i.e. native encoding)
+# read a file using UTF-8 and (on Windows) convert to native encoding if possible
 readUTF8 <- function(file) {
   enc <- checkEncoding(file)
-  # readLines() does not support UTF-8-BOM directly; has to go through file()
-  if (enc == 'UTF-8-BOM') {
-    file <- base::file(file, encoding = enc)
-    on.exit(close(file), add = TRUE)
-  }
-  x <- readLines(file, encoding = enc, warn = FALSE)
-  enc2native(x)
+  file <- base::file(file, encoding = enc)
+  on.exit(close(file), add = TRUE)
+  x <- enc2utf8(readLines(file, warn = FALSE))
+  tryNativeEncoding(x)
+}
+
+# if the UTF-8 string can be represented in the native encoding, use native encoding
+tryNativeEncoding <- function(string) {
+  if (!isWindows()) return(string)
+  string2 <- enc2native(string)
+  if (identical(enc2utf8(string2), string)) string2 else string
 }
 
 # similarly, try to source() a file with UTF-8
-sourceUTF8 <- function(file, ...) {
-  source(file, ..., keep.source = TRUE, encoding = checkEncoding(file))
+sourceUTF8 <- function(file, envir = globalenv()) {
+  lines <- readUTF8(file)
+  enc <- if (any(Encoding(lines) == 'UTF-8')) 'UTF-8' else 'unknown'
+  src <- srcfilecopy(file, lines, isFile = TRUE)  # source reference info
+  # oddly, parse(file) does not work when file contains multibyte chars that
+  # **can** be encoded natively on Windows (might be a bug in base R); we
+  # rewrite the source code in a natively encoded temp file and parse it in this
+  # case (the source reference is still pointed to the original file, though)
+  if (isWindows() && enc == 'unknown') {
+    file <- tempfile(); on.exit(unlink(file), add = TRUE)
+    writeLines(lines, file)
+  }
+  exprs <- parse(file, keep.source = FALSE, srcfile = src, encoding = enc)
+
+  # Wrap the exprs in first `{`, then ..stacktraceon..(). It's only really the
+  # ..stacktraceon..() that we care about, but the `{` is needed to make that
+  # possible.
+  exprs <- makeCall(`{`, exprs)
+  # Need to wrap exprs in a list because we want it treated as a single argument
+  exprs <- makeCall(..stacktraceon.., list(exprs))
+
+  eval(exprs, envir)
 }
 
+# @param func Name of function, in unquoted form
+# @param args An evaluated list of unevaluated argument expressions
+makeCall <- function(func, args) {
+  as.call(c(list(substitute(func)), args))
+}
+
+# a workaround for https://bugs.r-project.org/bugzilla3/show_bug.cgi?id=16264
+srcfilecopy <- function(filename, lines, ...) {
+  if (getRversion() > '3.2.2') return(base::srcfilecopy(filename, lines, ...))
+  src <- base::srcfilecopy(filename, lines = '', ...)
+  src$lines <- lines
+  src
+}
+
+# write text as UTF-8
+writeUTF8 <- function(text, ...) {
+  text <- enc2utf8(text)
+  writeLines(text, ..., useBytes = TRUE)
+}
 
 URLdecode <- decodeURIComponent
 URLencode <- function(value, reserved = FALSE) {
   value <- enc2utf8(value)
   if (reserved) encodeURIComponent(value) else encodeURI(value)
+}
+
+
+# This function takes a name and function, and it wraps that function in a new
+# function which calls the original function using the specified name. This can
+# be helpful for profiling, because the specified name will show up on the stack
+# trace.
+wrapFunctionLabel <- function(func, name, ..stacktraceon = FALSE) {
+  if (name == "name" || name == "func" || name == "relabelWrapper") {
+    stop("Invalid name for wrapFunctionLabel: ", name)
+  }
+  assign(name, func, environment())
+
+  relabelWrapper <- eval(substitute(
+    function(...) {
+      # This `f` gets renamed to the value of `name`. Note that it may not
+      # print as the new name, because of source refs stored in the function.
+      if (..stacktraceon)
+        ..stacktraceon..(f(...))
+      else
+        f(...)
+    },
+    list(f = as.name(name))
+  ))
+
+  relabelWrapper
 }
