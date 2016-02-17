@@ -1,9 +1,9 @@
-16897e480c906c94371ede4b89041b0e *DESCRIPTION
+2ad6915227302c8aecf5b3b76f2c0e92 *DESCRIPTION
 3ea3bb190b681ed860efbb72545a0de7 *LICENSE
 e2b2a23520dd2ecf5e564c8b06f3af85 *NAMESPACE
-e4c45997c2a8b318b9b5b639a258c4d0 *NEWS
+6fa90d0e81213255a5a310d67b58e702 *NEWS
 5ab3e1e0ff631d4daba310c6a976433f *R/app.R
-93d05afb6e6706c15ef9a7b4c6917dd9 *R/bootstrap-layout.R
+b029d63dc362e63fd99f1ccc683e386d *R/bootstrap-layout.R
 75d9b77e9eb740096f1d736ac437881e *R/bootstrap.R
 d18246ad3e9786fc0a4e7485cbb63eca *R/cache.R
 d3d888836ed2e5f4c138de7648369045 *R/conditions.R
@@ -39,7 +39,7 @@ e74cf2b96e000cffba17865d5278ab4b *R/modules.R
 7019c61c3228a9f40c9cc36fb1146b4b *R/progress.R
 7a02f7ca10d76b3507fe17f2c776aea2 *R/react.R
 53d29e91a9f1bd9d283d9626948fe16d *R/reactive-domains.R
-34d737c5d67e9e20d652f5e5ad7ac237 *R/reactives.R
+2d7e898d7223dcc7d8a1d3568c7271ac *R/reactives.R
 ec7d1ad351ec0d2acd8d8cda26dda407 *R/render-plot.R
 44e066f4d449634abcec831067b3932a *R/render-table.R
 5cd3fb30e5387154df74733c30da0bdc *R/run-url.R
@@ -53,12 +53,12 @@ dcee8c5f31038be559581c04baa4e6b9 *R/shinyui.R
 3f61918de4e7b5aad9fedc41c12dcbfa *R/tar.R
 33647efd01263929f695dceaf24c94a0 *R/timer.R
 3720708bcbaa3ba9adccd51661916b07 *R/update-input.R
-9d1ced9a89fb9bdea25e4cd1c7b37b82 *R/utils.R
+f2951f8433533b3e697d46bdf310b9a7 *R/utils.R
 769ece9febc0d1182569fbc232fe58bd *README.md
 4fa1da11c70d19fe988bd1b0247eaa98 *build/vignette.rds
 d31f345df444a62ece470655020ee2b8 *inst/doc/events.R
 38a278f834081a0a0e64ec3e4737cdd9 *inst/doc/events.Rmd
-504b87793e0543577411f54567763885 *inst/doc/events.html
+00cea48ed10172dbc7b2b89e4dea274c *inst/doc/events.html
 13f970fb92cec9836ea297717872f46e *inst/examples/01_hello/DESCRIPTION
 85d0eaa1f8d68da015f0447469489143 *inst/examples/01_hello/Readme.md
 59c210b096161daeedde3c9d96c1efbd *inst/examples/01_hello/rsconnect/localhost/admin/01_hello.dcf
@@ -111,7 +111,7 @@ dbe84e866824cfdf042f6d92729188cf *inst/tests/test-gc.r
 8ae16d4481858309a4625678e2b8e040 *inst/tests/test-input-handler.R
 f9ee5309105f8f0c9743572e7409336f *inst/tests/test-modules.R
 757144c90564ef939292d6ad7222135f *inst/tests/test-plot-coordmap.R
-3779f02db8dce32168e7912a24cab463 *inst/tests/test-reactivity.r
+f44284201cd8fced1d525c7ae87d4c34 *inst/tests/test-reactivity.r
 bc84dab9f44f9079568a0c2e4fc83884 *inst/tests/test-stack.R
 399ab41ea5c56acca74c37949699d101 *inst/tests/test-stacks.R
 8070321db7e859f42cfed7753b9234b0 *inst/tests/test-staticdocs.R
@@ -245,7 +245,7 @@ c539894c4785ce273996b9d5376c048e *inst/www/shared/shiny-showcase.css
 e9806de66ff7cd1d467398bf4ebe85e2 *inst/www/shared/shiny.css
 31c36e3988c8953815890b3c7f0ecfdb *inst/www/shared/shiny.js
 32f6d3f636bef81ad5c226a784ab540b *inst/www/shared/shiny.js.map
-9921000186a185cc0fdc367463c7dbb0 *inst/www/shared/shiny.min.js
+201db68aee7e50c50a7d83b0b33eac3b *inst/www/shared/shiny.min.js
 71859b3be5df9fd01f44c25f2c3b0813 *inst/www/shared/shiny.min.js.map
 d42bccda0accb4e937f79e5bd9540643 *inst/www/shared/showdown/compressed/showdown.js
 ae18a8f49f1a446ca1772447b95a99d0 *inst/www/shared/showdown/license.txt
@@ -275,7 +275,7 @@ a941504ef1e6235ce5161b26cd207543 *man/dblclickOpts.Rd
 2d9b353d16b677b55a58ff0cff020541 *man/domains.Rd
 481fa1943f6d4353eeed023a75521446 *man/downloadButton.Rd
 e1904616d3471a528f2eba8a67056957 *man/downloadHandler.Rd
-62e4a983e67d9e783279f59cfcd6a3b7 *man/exprToFunction.Rd
+6cfe34fd8c90c75d59b1147587679960 *man/exprToFunction.Rd
 10d162d84b04c9f73ee4345462d835e2 *man/fileInput.Rd
 f3b54e62a2d5e862048d4c951d2f3604 *man/fillPage.Rd
 ecbbb7a17d0d51a46b2b665b8e13cfe9 *man/fillRow.Rd
