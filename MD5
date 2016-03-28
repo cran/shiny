@@ -1,7 +1,7 @@
-2ad6915227302c8aecf5b3b76f2c0e92 *DESCRIPTION
+d6822b2e7d2aac40a6f3f9b92e61c322 *DESCRIPTION
 3ea3bb190b681ed860efbb72545a0de7 *LICENSE
 e2b2a23520dd2ecf5e564c8b06f3af85 *NAMESPACE
-6fa90d0e81213255a5a310d67b58e702 *NEWS
+628bf8ee3bac447816fce91aff6ec1b3 *NEWS
 5ab3e1e0ff631d4daba310c6a976433f *R/app.R
 b029d63dc362e63fd99f1ccc683e386d *R/bootstrap-layout.R
 75d9b77e9eb740096f1d736ac437881e *R/bootstrap.R
@@ -58,7 +58,7 @@ f2951f8433533b3e697d46bdf310b9a7 *R/utils.R
 4fa1da11c70d19fe988bd1b0247eaa98 *build/vignette.rds
 d31f345df444a62ece470655020ee2b8 *inst/doc/events.R
 38a278f834081a0a0e64ec3e4737cdd9 *inst/doc/events.Rmd
-00cea48ed10172dbc7b2b89e4dea274c *inst/doc/events.html
+a82447c03ada48106a5aa26862d4a825 *inst/doc/events.html
 13f970fb92cec9836ea297717872f46e *inst/examples/01_hello/DESCRIPTION
 85d0eaa1f8d68da015f0447469489143 *inst/examples/01_hello/Readme.md
 59c210b096161daeedde3c9d96c1efbd *inst/examples/01_hello/rsconnect/localhost/admin/01_hello.dcf
@@ -245,7 +245,7 @@ c539894c4785ce273996b9d5376c048e *inst/www/shared/shiny-showcase.css
 e9806de66ff7cd1d467398bf4ebe85e2 *inst/www/shared/shiny.css
 31c36e3988c8953815890b3c7f0ecfdb *inst/www/shared/shiny.js
 32f6d3f636bef81ad5c226a784ab540b *inst/www/shared/shiny.js.map
-201db68aee7e50c50a7d83b0b33eac3b *inst/www/shared/shiny.min.js
+6d56c9dca6bf55204b4d07a6b32e08c5 *inst/www/shared/shiny.min.js
 71859b3be5df9fd01f44c25f2c3b0813 *inst/www/shared/shiny.min.js.map
 d42bccda0accb4e937f79e5bd9540643 *inst/www/shared/showdown/compressed/showdown.js
 ae18a8f49f1a446ca1772447b95a99d0 *inst/www/shared/showdown/license.txt
@@ -286,7 +286,7 @@ ecbbb7a17d0d51a46b2b665b8e13cfe9 *man/fillRow.Rd
 a4ba8d8c599204740128fea8b6711029 *man/helpText.Rd
 b7e98aeab986df2f38906b9810c43ecb *man/hoverOpts.Rd
 406342e1835b163037604718f4d2be33 *man/htmlOutput.Rd
-7f793b3d7e111ffa2c779dff6b471692 *man/htmlTemplate.Rd
+b6db1c34fc97f2fa8fb24f7d2713aec5 *man/htmlTemplate.Rd
 1523581bdab30606e35ccac2df72a699 *man/icon.Rd
 82b947ce74f2de68a3d3d9f40c73770d *man/include.Rd
 669379d570b9756032d5739598566053 *man/inputPanel.Rd
