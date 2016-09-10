@@ -23,7 +23,6 @@ NULL
 #' rnormA(3)  # [1]  1.8285879 -0.7468041 -0.4639111
 #' rnormA(5)  # [1]  1.8285879 -0.7468041 -0.4639111 -1.6510126 -1.4686924
 #' rnormB(5)  # [1] -0.7946034  0.2568374 -0.6567597  1.2451387 -0.8375699
-#'
 #' @export
 repeatable <- function(rngfunc, seed = stats::runif(1, 0, .Machine$integer.max)) {
   force(seed)
@@ -155,6 +154,20 @@ dropNullsOrEmpty <- function(x) {
   x[!vapply(x, nullOrEmpty, FUN.VALUE=logical(1))]
 }
 
+# Given a vector/list, return TRUE if any elements are named, FALSE otherwise.
+anyNamed <- function(x) {
+  # Zero-length vector
+  if (length(x) == 0) return(FALSE)
+
+  nms <- names(x)
+
+  # List with no name attribute
+  if (is.null(nms)) return(FALSE)
+
+  # List with name attribute; check for any ""
+  any(nzchar(nms))
+}
+
 # Given a vector/list, return TRUE if any elements are unnamed, FALSE otherwise.
 anyUnnamed <- function(x) {
   # Zero-length vector
@@ -168,6 +181,21 @@ anyUnnamed <- function(x) {
   # List with name attribute; check for any ""
   any(!nzchar(nms))
 }
+
+# Given two named vectors, join them together, and keep only the last element
+# with a given name in the resulting vector. If b has any elements with the same
+# name as elements in a, the element in a is dropped. Also, if there are any
+# duplicated names in a or b, only the last one with that name is kept.
+mergeVectors <- function(a, b) {
+  if (anyUnnamed(a) || anyUnnamed(b)) {
+    stop("Vectors must be either NULL or have names for all elements")
+  }
+
+  x <- c(a, b)
+  drop_idx <- duplicated(names(x), fromLast = TRUE)
+  x[!drop_idx]
+}
+
 
 # Combine dir and (file)name into a file path. If a file already exists with a
 # name differing only by case, then use it instead.
@@ -209,6 +237,12 @@ find.file.ci <- function(...) {
     return(NULL)
 
   return(matches[1])
+}
+
+# The function base::dir.exists was added in R 3.2.0, but for backward
+# compatibility we need to add this function
+dirExists <- function(paths) {
+  file.exists(paths) & file.info(paths)$isdir
 }
 
 # Attempt to join a path and relative path, and turn the result into a
@@ -376,7 +410,6 @@ makeFunction <- function(args = pairlist(), body, env = parent.frame()) {
 #'
 #' isolate(tripleA())
 #' # "text, text, text"
-#'
 #' @export
 exprToFunction <- function(expr, env=parent.frame(), quoted=FALSE) {
   if (!quoted) {
@@ -410,7 +443,6 @@ exprToFunction <- function(expr, env=parent.frame(), quoted=FALSE) {
 #'   the name of the calling function.
 #' @param wrappedWithLabel,..stacktraceon Advanced use only. For stack manipulation purposes; see
 #'   \code{\link{stacktrace}}.
-#'
 #' @export
 installExprFunction <- function(expr, name, eval.env = parent.frame(2),
                                 quoted = FALSE,
@@ -454,7 +486,7 @@ installExprFunction <- function(expr, name, eval.env = parent.frame(2),
 #'
 #' \dontrun{
 #' # Example of usage within a Shiny app
-#' shinyServer(function(input, output, session) {
+#' function(input, output, session) {
 #'
 #'   output$queryText <- renderText({
 #'     query <- parseQueryString(session$clientData$url_search)
@@ -470,7 +502,7 @@ installExprFunction <- function(expr, name, eval.env = parent.frame(2),
 #'     # Return a string with key-value pairs
 #'     paste(names(query), query, sep = "=", collapse=", ")
 #'   })
-#' })
+#' }
 #' }
 #'
 parseQueryString <- function(str, nested = FALSE) {
@@ -482,6 +514,8 @@ parseQueryString <- function(str, nested = FALSE) {
     str <- substr(str, 2, nchar(str))
 
   pairs <- strsplit(str, '&', fixed = TRUE)[[1]]
+  # Drop any empty items (if there's leading/trailing/consecutive '&' chars)
+  pairs <- pairs[pairs != ""]
   pairs <- strsplit(pairs, '=', fixed = TRUE)
 
   keys   <- vapply(pairs, function(x) x[1], FUN.VALUE = character(1))
@@ -597,7 +631,10 @@ Callbacks <- R6Class(
     .callbacks = 'Map',
 
     initialize = function() {
-      .nextId <<- as.integer(.Machine$integer.max)
+      # NOTE: we avoid using '.Machine$integer.max' directly
+      # as R 3.3.0's 'radixsort' could segfault when sorting
+      # an integer vector containing this value
+      .nextId <<- as.integer(.Machine$integer.max - 1L)
       .callbacks <<- Map$new()
     },
     register = function(callback) {
@@ -646,6 +683,21 @@ dataTablesJSON <- function(data, req) {
   params <- URLdecode(rawToChar(req$rook.input$read()))
   q <- parseQueryString(params, nested = TRUE)
   ci <- q$search[['caseInsensitive']] == 'true'
+
+  # data may have been replaced/updated in the new table while the Ajax request
+  # from the previous table is still on its way, so it is possible that the old
+  # request asks for more columns than the current data, in which case we should
+  # discard this request and return empty data; the next Ajax request from the
+  # new table will retrieve the correct number of columns of data
+  if (length(q$columns) != ncol(data)) {
+    res <- toJSON(list(
+      draw = as.integer(q$draw),
+      recordsTotal = n,
+      recordsFiltered = 0,
+      data = NULL
+    ))
+    return(httpResponse(200, 'application/json', enc2utf8(res)))
+  }
 
   # global searching
   i <- seq_len(n)
@@ -847,6 +899,143 @@ columnToRowData <- function(data) {
   )
 }
 
+#' Declare an error safe for the user to see
+#'
+#' This should be used when you want to let the user see an error
+#' message even if the default is to sanitize all errors. If you have an
+#' error \code{e} and call \code{stop(safeError(e))}, then Shiny will
+#' ignore the value of \code{getOption("shiny.sanitize.errors")} and always
+#' display the error in the app itself.
+#'
+#' @param error Either an "error" object or a "character" object (string).
+#' In the latter case, the string will become the message of the error
+#' returned by \code{safeError}.
+#'
+#' @return An "error" object
+#'
+#' @details An error generated by \code{safeError} has priority over all
+#' other Shiny errors. This can be dangerous. For example, if you have set
+#' \code{options(shiny.sanitize.errors = TRUE)}, then by default all error
+#' messages are omitted in the app, and replaced by a generic error message.
+#' However, this does not apply to \code{safeError}: whatever you pass
+#' through \code{error} will be displayed to the user. So, this should only
+#' be used when you are sure that your error message does not contain any
+#' sensitive information. In those situations, \code{safeError} can make
+#' your users' lives much easier by giving them a hint as to where the
+#' error occurred.
+#'
+#' @seealso \code{\link{shiny-options}}
+#'
+#' @examples
+#' ## Only run examples in interactive R sessions
+#' if (interactive()) {
+#'
+#' # uncomment the desired line to experiment with shiny.sanitize.errors
+#' # options(shiny.sanitize.errors = TRUE)
+#' # options(shiny.sanitize.errors = FALSE)
+#'
+#' # Define UI
+#' ui <- fluidPage(
+#'   textInput('number', 'Enter your favorite number from 1 to 10', '5'),
+#'   textOutput('normalError'),
+#'   textOutput('safeError')
+#' )
+#'
+#' # Server logic
+#' server <- function(input, output) {
+#'   output$normalError <- renderText({
+#'     number <- input$number
+#'     if (number %in% 1:10) {
+#'       return(paste('You chose', number, '!'))
+#'     } else {
+#'       stop(
+#'         paste(number, 'is not a number between 1 and 10')
+#'       )
+#'     }
+#'   })
+#'   output$safeError <- renderText({
+#'     number <- input$number
+#'     if (number %in% 1:10) {
+#'       return(paste('You chose', number, '!'))
+#'     } else {
+#'       stop(safeError(
+#'         paste(number, 'is not a number between 1 and 10')
+#'       ))
+#'     }
+#'   })
+#' }
+#'
+#' # Complete app with UI and server components
+#' shinyApp(ui, server)
+#' }
+#' @export
+safeError <- function(error) {
+  if (inherits(error, "character")) {
+    error <- simpleError(error)
+  }
+  if (!inherits(error, "error")) {
+    stop("The class of the `error` parameter must be either 'error' or 'character'")
+  }
+  class(error) <- c("shiny.custom.error", class(error))
+  error
+}
+
+#***********************************************************************#
+#**** Keep this function internal for now, may chnage in the future ****#
+#***********************************************************************#
+# #' Propagate an error through Shiny, but catch it before it throws
+# #'
+# #' Throws a type of exception that is caught by observers. When such an
+# #' exception is triggered, all reactive links are broken. So, essentially,
+# #' \code{reactiveStop()} behaves just like \code{stop()}, except that
+# #' instead of ending the session, it is silently swalowed by Shiny.
+# #'
+# #' This function should be used when you want to disrupt the reactive
+# #' links in a reactive chain, but do not want to end the session. For
+# #' example, this enables you to disallow certain inputs, but get back
+# #' to business as usual when valid inputs are re-entered.
+# #' \code{reactiveStop} is also called internally by Shiny to create
+# #' special errors, such as the ones generated by \code{\link{validate}()},
+# #' \code{\link{req}()} and \code{\link{cancelOutput}()}.
+# #'
+# #' @param message An optional error message.
+# #' @param class An optional class to add to the error.
+# #' @export
+# #' @examples
+# #' ## Note: the breaking of the reactive chain that happens in the app
+# #' ## below (when input$txt = 'bad' and input$allowBad = 'FALSE') is
+# #' ## easily visualized with `showReactLog()`
+# #'
+# #' ## Only run examples in interactive R sessions
+# #' if (interactive()) {
+# #'
+# #' ui <- fluidPage(
+# #'   textInput('txt', 'Enter some text...'),
+# #'   selectInput('allowBad', 'Allow the string \'bad\'?',
+# #'               c('TRUE', 'FALSE'), selected = 'FALSE')
+# #' )
+# #'
+# #' server <- function(input, output) {
+# #'   val <- reactive({
+# #'     if (!(as.logical(input$allowBad))) {
+# #'       if (identical(input$txt, "bad")) {
+# #'         reactiveStop()
+# #'       }
+# #'     }
+## '   })
+# #'
+# #'   observe({
+# #'     val()
+# #'   })
+# #' }
+# #'
+# #' shinyApp(ui, server)
+# #' }
+# #' @export
+reactiveStop <- function(message = "", class = NULL) {
+  stopWithCondition(c("shiny.silent.error", class), message)
+}
+
 #' Validate input values and other conditions
 #'
 #' For an output rendering function (e.g. \code{\link{renderPlot}()}), you may
@@ -903,15 +1092,16 @@ columnToRowData <- function(data) {
 #'   \code{shiny-output-error-} prepended to this value.
 #' @export
 #' @examples
-#' # in ui.R
-#' fluidPage(
+#' ## Only run examples in interactive R sessions
+#' if (interactive()) {
+#'
+#' ui <- fluidPage(
 #'   checkboxGroupInput('in1', 'Check some letters', choices = head(LETTERS)),
 #'   selectizeInput('in2', 'Select a state', choices = state.name),
 #'   plotOutput('plot')
 #' )
 #'
-#' # in server.R
-#' function(input, output) {
+#' server <- function(input, output) {
 #'   output$plot <- renderPlot({
 #'     validate(
 #'       need(input$in1, 'Check at least one letter!'),
@@ -919,6 +1109,10 @@ columnToRowData <- function(data) {
 #'     )
 #'     plot(1:10, main = paste(c(input$in1, input$in2), collapse = ', '))
 #'   })
+#' }
+#'
+#' shinyApp(ui, server)
+#'
 #' }
 validate <- function(..., errorClass = character(0)) {
   results <- sapply(list(...), function(x) {
@@ -940,8 +1134,7 @@ validate <- function(..., errorClass = character(0)) {
   # There may be empty strings remaining; these are message-less failures that
   # started as FALSE
   results <- results[nzchar(results)]
-
-  stopWithCondition(c("validation", errorClass), paste(results, collapse="\n"))
+  reactiveStop(paste(results, collapse="\n"), c(errorClass, "validation"))
 }
 
 #' @param expr An expression to test. The condition will pass if the expression
@@ -1035,20 +1228,115 @@ need <- function(expr, message = paste(label, "must be provided"), label) {
 #'
 #' \code{req(input$a != 0)}
 #'
-#' @param ... Values to check for truthiness.
-#' @return The first value that was passed in.
+#' \strong{Using \code{req(FALSE)}}
 #'
+#' You can use \code{req(FALSE)} (i.e. no condition) if you've already performed
+#' all the checks you needed to by that point and just want to stop the reactive
+#' chain now. There is no advantange to this, except perhaps ease of readibility
+#' if you have a complicated condition to check for (or perhaps if you'd like to
+#' divide your condition into nested \code{if} statements).
+#'
+#' \strong{Using \code{cancelOutput = TRUE}}
+#'
+#' When \code{req(..., cancelOutput = TRUE)} is used, the "silent" exception is
+#' also raised, but it is treated slightly differently if one or more outputs are
+#' currently being evaluated. In those cases, the reactive chain does not proceed
+#' or update, but the output(s) are left is whatever state they happen to be in
+#' (whatever was their last valid state).
+#'
+#' Note that this is always going to be the case if
+#' this is used inside an output context (e.g. \code{output$txt <- ...}). It may
+#' or may not be the case if it is used inside a non-output context (e.g.
+#' \code{\link{reactive}}, \code{\link{observe}} or \code{\link{observeEvent}})
+#' -- depending on whether or not there is an \code{output$...} that is triggered
+#' as a result of those calls. See the examples below for concrete scenarios.
+#'
+#' @param ... Values to check for truthiness.
+#' @param cancelOutput If \code{TRUE} and an output is being evaluated, stop
+#'   processing as usual but instead of clearing the output, leave it in
+#'   whatever state it happens to be in.
+#' @param x An expression whose truthiness value we want to determine
+#' @return The first value that was passed in.
 #' @export
-req <- function(...) {
+#' @examples
+#' ## Only run examples in interactive R sessions
+#' if (interactive()) {
+#'   ui <- fluidPage(
+#'     textInput('data', 'Enter a dataset from the "datasets" package', 'cars'),
+#'     p('(E.g. "cars", "mtcars", "pressure", "faithful")'), hr(),
+#'     tableOutput('tbl')
+#'   )
+#'
+#'   server <- function(input, output) {
+#'     output$tbl <- renderTable({
+#'
+#'       ## to require that the user types something, use: `req(input$data)`
+#'       ## but better: require that input$data is valid and leave the last
+#'       ## valid table up
+#'       req(exists(input$data, "package:datasets", inherits = FALSE),
+#'           cancelOutput = TRUE)
+#'
+#'       head(get(input$data, "package:datasets", inherits = FALSE))
+#'     })
+#'   }
+#'
+#'   shinyApp(ui, server)
+#' }
+req <- function(..., cancelOutput = FALSE) {
   dotloop(function(item) {
-    if (!isTruthy(item))
-      stopWithCondition("validation", "")
+    if (!isTruthy(item)) {
+      if (isTRUE(cancelOutput)) {
+        cancelOutput()
+      } else {
+        reactiveStop(class = "validation")
+      }
+    }
   }, ...)
 
   if (!missing(..1))
     ..1
   else
     invisible()
+}
+
+#***********************************************************************#
+#**** Keep this function internal for now, may chnage in the future ****#
+#***********************************************************************#
+# #' Cancel processing of the current output
+# #'
+# #' Signals an error that Shiny treats specially if an output is currently being
+# #' evaluated. Execution will stop, but rather than clearing the output (as
+# #' \code{\link{req}} does) or showing an error message (as \code{\link{stop}}
+# #' does), the output simply remains unchanged.
+# #'
+# #' If \code{cancelOutput} is called in any non-output context (like in an
+# #' \code{\link{observe}} or \code{\link{observeEvent}}), the effect is the same
+# #' as \code{\link{req}(FALSE)}.
+# #' @export
+# #' @examples
+# #' ## Only run examples in interactive R sessions
+# #' if (interactive()) {
+# #'
+# #' # uncomment the desired line to experiment with cancelOutput() vs. req()
+# #'
+# #' ui <- fluidPage(
+# #'   textInput('txt', 'Enter text'),
+# #'   textOutput('check')
+# #' )
+# #'
+# #' server <- function(input, output) {
+# #'   output$check <- renderText({
+# #'     # req(input$txt)
+# #'     if (input$txt == 'hi') return('hi')
+# #'     else if (input$txt == 'bye') return('bye')
+# #'     # else cancelOutput()
+# #'   })
+# #' }
+# #'
+# #' shinyApp(ui, server)
+# #' }
+cancelOutput <- function() {
+  reactiveStop(class = "shiny.output.cancel")
 }
 
 # Execute a function against each element of ..., but only evaluate each element
@@ -1063,6 +1351,8 @@ dotloop <- function(fun_, ...) {
   invisible()
 }
 
+#' @export
+#' @rdname req
 isTruthy <- function(x) {
   if (inherits(x, 'try-error'))
     return(FALSE)
@@ -1091,7 +1381,7 @@ isTruthy <- function(x) {
 stopWithCondition <- function(class, message) {
   cond <- structure(
     list(message = message),
-    class = c(class, 'shiny.silent.error', 'error', 'condition')
+    class = c(class, 'error', 'condition')
   )
   stop(cond)
 }
@@ -1142,6 +1432,10 @@ checkEncoding <- function(file) {
             'http://shiny.rstudio.com/articles/unicode.html for more info.')
     return('UTF-8-BOM')
   }
+  x <- readChar(file, size, useBytes = TRUE)
+  if (is.na(iconv(x, 'UTF-8', 'UTF-8'))) {
+    warning('The input file ', file, ' does not seem to be encoded in UTF8')
+  }
   'UTF-8'
 }
 
@@ -1174,7 +1468,11 @@ sourceUTF8 <- function(file, envir = globalenv()) {
     file <- tempfile(); on.exit(unlink(file), add = TRUE)
     writeLines(lines, file)
   }
-  exprs <- parse(file, keep.source = FALSE, srcfile = src, encoding = enc)
+  exprs <- try(parse(file, keep.source = FALSE, srcfile = src, encoding = enc))
+  if (inherits(exprs, "try-error")) {
+    diagnoseCode(file)
+    stop("Error sourcing ", file)
+  }
 
   # Wrap the exprs in first `{`, then ..stacktraceon..(). It's only really the
   # ..stacktraceon..() that we care about, but the `{` is needed to make that
@@ -1238,3 +1536,17 @@ wrapFunctionLabel <- function(func, name, ..stacktraceon = FALSE) {
 
   relabelWrapper
 }
+
+
+# This is a very simple mutable object which only stores one value
+# (which we can set and get). Using this class is sometimes useful
+# when communicating persistent changes across functions.
+Mutable <- R6Class("Mutable",
+  private = list(
+    value = NULL
+  ),
+  public = list(
+    set = function(value) { private$value <- value },
+    get = function() { private$value }
+  )
+)

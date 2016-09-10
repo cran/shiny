@@ -6,7 +6,7 @@
 #' URL.
 #'
 #' @param dependency A single HTML dependency object, created using
-#'   \code{\link{htmlDependency}}. If the \code{src} value is named, then
+#'   \code{\link[htmltools]{htmlDependency}}. If the \code{src} value is named, then
 #'   \code{href} and/or \code{file} names must be present.
 #'
 #' @return A single HTML dependency object that has an \code{href}-named element
@@ -26,4 +26,22 @@ createWebDependency <- function(dependency) {
   }
 
   return(dependency)
+}
+
+
+# Given a Shiny tag object, process singletons and dependencies. Returns a list
+# with rendered HTML and dependency objects.
+processDeps <- function(tags, session) {
+  ui <- takeSingletons(tags, session$singletons, desingleton=FALSE)$ui
+  ui <- surroundSingletons(ui)
+  dependencies <- lapply(
+    resolveDependencies(findDependencies(ui)),
+    createWebDependency
+  )
+  names(dependencies) <- NULL
+
+  list(
+    html = doRenderTags(ui),
+    deps = dependencies
+  )
 }

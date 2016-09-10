@@ -22,6 +22,11 @@ TimerCallbacks <- R6Class(
       .times <<- data.frame()
     },
     schedule = function(millis, func) {
+      # If args could fail to evaluate, let's make them do that before
+      # we change any state
+      force(millis)
+      force(func)
+
       id <- .nextId
       .nextId <<- .nextId + 1L
 
@@ -56,7 +61,7 @@ TimerCallbacks <- R6Class(
     },
     executeElapsed = function() {
       elapsed <- takeElapsed()
-      if (length(elapsed) == 0)
+      if (nrow(elapsed) == 0)
         return(FALSE)
 
       for (id in elapsed$id) {
@@ -71,3 +76,16 @@ TimerCallbacks <- R6Class(
 )
 
 timerCallbacks <- TimerCallbacks$new()
+
+scheduleTask <- function(millis, callback) {
+  cancelled <- FALSE
+  timerCallbacks$schedule(millis, function() {
+    if (!cancelled)
+      callback()
+  })
+
+  function() {
+    cancelled <<- TRUE
+    callback <<- NULL # to allow for callback to be gc'ed
+  }
+}

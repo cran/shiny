@@ -30,8 +30,18 @@ A numeric input control that can be added to a UI definition.
 Create an input control for entry of numeric values
 }
 \examples{
-numericInput("obs", "Observations:", 10,
-             min = 1, max = 100)
+## Only run examples in interactive R sessions
+if (interactive()) {
+
+ui <- fluidPage(
+  numericInput("obs", "Observations:", 10, min = 1, max = 100),
+  verbatimTextOutput("value")
+)
+server <- function(input, output) {
+  output$value <- renderText({ input$obs })
+}
+shinyApp(ui, server)
+}
 }
 \seealso{
 \code{\link{updateNumericInput}}
@@ -42,6 +52,7 @@ Other input.elements: \code{\link{actionButton}},
   \code{\link{dateRangeInput}}, \code{\link{fileInput}},
   \code{\link{passwordInput}}, \code{\link{radioButtons}},
   \code{\link{selectInput}}, \code{\link{sliderInput}},
-  \code{\link{submitButton}}, \code{\link{textInput}}
+  \code{\link{submitButton}}, \code{\link{textAreaInput}},
+  \code{\link{textInput}}
 }
 

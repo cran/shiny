@@ -20,7 +20,7 @@ withMathJax <- function(...) {
       singleton(tags$script(src = path, type = 'text/javascript'))
     ),
     ...,
-    tags$script(HTML('MathJax.Hub.Queue(["Typeset", MathJax.Hub]);'))
+    tags$script(HTML('if (window.MathJax) MathJax.Hub.Queue(["Typeset", MathJax.Hub]);'))
   )
 }
 
@@ -44,7 +44,8 @@ renderPage <- function(ui, connection, showcase=0) {
 
   shiny_deps <- list(
     htmlDependency("json2", "2014.02.04", c(href="shared"), script = "json2-min.js"),
-    htmlDependency("jquery", "1.11.3", c(href="shared"), script = "jquery.min.js"),
+    htmlDependency("jquery", "1.12.4", c(href="shared"), script = "jquery.min.js"),
+    htmlDependency("babel-polyfill", "6.7.2", c(href="shared"), script = "babel-polyfill.min.js"),
     htmlDependency("shiny", utils::packageVersion("shiny"), c(href="shared"),
       script = if (getOption("shiny.minified", TRUE)) "shiny.min.js" else "shiny.js",
       stylesheet = "shiny.css")
@@ -63,7 +64,6 @@ renderPage <- function(ui, connection, showcase=0) {
 #'
 #' @param ui A user interace definition
 #' @return The user interface definition, without modifications or side effects.
-#'
 #' @export
 shinyUI <- function(ui) {
   .globals$ui <- list(ui)
@@ -90,17 +90,34 @@ uiHttpHandler <- function(ui, uiPattern = "^/$") {
       if (!is.null(mode))
         showcaseMode <- mode
     }
-    uiValue <- if (is.function(ui)) {
-      if (length(formals(ui)) > 0) {
-        # No corresponding ..stacktraceoff.., this is pure user code
-        ..stacktraceon..(ui(req))
-      } else {
-        # No corresponding ..stacktraceoff.., this is pure user code
-        ..stacktraceon..(ui())
-      }
+
+    # Create a restore context using query string
+    bookmarkStore <- getShinyOption("bookmarkStore", default = "disable")
+    if (bookmarkStore == "disable") {
+      # If bookmarking is disabled, use empty context
+      restoreContext <- RestoreContext$new()
     } else {
-      ui
+      restoreContext <- RestoreContext$new(req$QUERY_STRING)
     }
+
+    withRestoreContext(restoreContext, {
+      uiValue <- NULL
+
+      if (is.function(ui)) {
+        if (length(formals(ui)) > 0) {
+          # No corresponding ..stacktraceoff.., this is pure user code
+          uiValue <- ..stacktraceon..(ui(req))
+        } else {
+          # No corresponding ..stacktraceoff.., this is pure user code
+          uiValue <- ..stacktraceon..(ui())
+        }
+      } else {
+        if (getCurrentRestoreContext()$active) {
+          warning("Trying to restore saved app state, but UI code must be a function for this to work! See ?enableBookmarking")
+        }
+        uiValue <- ui
+      }
+    })
     if (is.null(uiValue))
       return(NULL)
 

@@ -12,6 +12,14 @@
 #' method is called. Calling \code{close} will cause the progress panel
 #' to be removed.
 #'
+#' As of version 0.14, the progress indicators use Shiny's new notification API.
+#' If you want to use the old styling (for example, you may have used customized
+#' CSS), you can use \code{style="old"} each time you call
+#' \code{Progress$new()}. If you don't want to set the style each time
+#' \code{Progress$new} is called, you can instead call
+#' \code{\link{shinyOptions}(progress.style="old")} just once, inside the server
+#' function.
+#'
 #' \strong{Methods}
 #'   \describe{
 #'     \item{\code{initialize(session, min = 0, max = 1)}}{
@@ -48,6 +56,10 @@
 #' @param value A numeric value at which to set
 #'   the progress bar, relative to \code{min} and \code{max}.
 #'   \code{NULL} hides the progress bar, if it is currently visible.
+#' @param style Progress display style. If \code{"notification"} (the default),
+#'   the progress indicator will show using Shiny's notification API. If
+#'   \code{"old"}, use the same HTML and CSS used in Shiny 0.13.2 and below
+#'   (this is for backward-compatibility).
 #' @param amount Single-element numeric vector; the value at which to set
 #'   the progress bar, relative to \code{min} and \code{max}.
 #'   \code{NULL} hides the progress bar, if it is currently visible.
@@ -55,11 +67,16 @@
 #'   progress bar.
 #'
 #' @examples
-#' \dontrun{
-#' # server.R
-#' shinyServer(function(input, output, session) {
+#' ## Only run examples in interactive R sessions
+#' if (interactive()) {
+#'
+#' ui <- fluidPage(
+#'   plotOutput("plot")
+#' )
+#'
+#' server <- function(input, output, session) {
 #'   output$plot <- renderPlot({
-#'     progress <- shiny::Progress$new(session, min=1, max=15)
+#'     progress <- Progress$new(session, min=1, max=15)
 #'     on.exit(progress$close())
 #'
 #'     progress$set(message = 'Calculation in progress',
@@ -71,7 +88,9 @@
 #'     }
 #'     plot(cars)
 #'   })
-#' })
+#' }
+#'
+#' shinyApp(ui, server)
 #' }
 #' @seealso \code{\link{withProgress}}
 #' @format NULL
@@ -82,18 +101,22 @@ Progress <- R6Class(
   portable = TRUE,
   public = list(
 
-    initialize = function(session = getDefaultReactiveDomain(), min = 0, max = 1) {
+    initialize = function(session = getDefaultReactiveDomain(),
+      min = 0, max = 1,
+      style = getShinyOption("progress.style", default = "notification"))
+    {
       if (is.null(session$progressStack))
         stop("'session' is not a ShinySession object.")
 
       private$session <- session
-      private$id <- paste(as.character(as.raw(stats::runif(8, min=0, max=255))), collapse='')
+      private$id <- createUniqueId(8)
       private$min <- min
       private$max <- max
+      private$style <- match.arg(style, choices = c("notification", "old"))
       private$value <- NULL
       private$closed <- FALSE
 
-      session$sendProgress('open', list(id = private$id))
+      session$sendProgress('open', list(id = private$id, style = private$style))
     },
 
     set = function(value = NULL, message = NULL, detail = NULL) {
@@ -115,7 +138,8 @@ Progress <- R6Class(
         id = private$id,
         message = message,
         detail = detail,
-        value = value
+        value = value,
+        style = private$style
       ))
 
        private$session$sendProgress('update', data)
@@ -141,7 +165,9 @@ Progress <- R6Class(
         return()
       }
 
-      private$session$sendProgress('close', list(id = private$id))
+      private$session$sendProgress('close',
+        list(id = private$id, style = private$style)
+      )
       private$closed <- TRUE
     }
   ),
@@ -151,6 +177,7 @@ Progress <- R6Class(
     id = character(0),
     min = numeric(0),
     max = numeric(0),
+    style = character(0),
     value = NULL,
     closed = logical(0)
   )
@@ -179,6 +206,14 @@ Progress <- R6Class(
 #' is not common) or otherwise cannot be encapsulated by a single scope. In that
 #' case, you can use the \code{Progress} reference class.
 #'
+#' As of version 0.14, the progress indicators use Shiny's new notification API.
+#' If you want to use the old styling (for example, you may have used customized
+#' CSS), you can use \code{style="old"} each time you call
+#' \code{withProgress()}. If you don't want to set the style each time
+#' \code{withProgress} is called, you can instead call
+#' \code{\link{shinyOptions}(progress.style="old")} just once, inside the server
+#' function.
+#'
 #' @param session The Shiny session object, as provided by \code{shinyServer} to
 #'   the server function. The default is to automatically find the session by
 #'   using the current reactive domain.
@@ -199,14 +234,23 @@ Progress <- R6Class(
 #'   displayed to the user, or \code{NULL} to hide the current detail message
 #'   (if any). The detail message will be shown with a de-emphasized appearance
 #'   relative to \code{message}.
+#' @param style Progress display style. If \code{"notification"} (the default),
+#'   the progress indicator will show using Shiny's notification API. If
+#'   \code{"old"}, use the same HTML and CSS used in Shiny 0.13.2 and below
+#'   (this is for backward-compatibility).
 #' @param value Single-element numeric vector; the value at which to set the
 #'   progress bar, relative to \code{min} and \code{max}. \code{NULL} hides the
 #'   progress bar, if it is currently visible.
 #'
 #' @examples
-#' \dontrun{
-#' # server.R
-#' shinyServer(function(input, output) {
+#' ## Only run examples in interactive R sessions
+#' if (interactive()) {
+#'
+#' ui <- fluidPage(
+#'   plotOutput("plot")
+#' )
+#'
+#' server <- function(input, output) {
 #'   output$plot <- renderPlot({
 #'     withProgress(message = 'Calculation in progress',
 #'                  detail = 'This may take a while...', value = 0, {
@@ -217,16 +261,20 @@ Progress <- R6Class(
 #'     })
 #'     plot(cars)
 #'   })
-#' })
+#' }
+#'
+#' shinyApp(ui, server)
 #' }
 #' @seealso \code{\link{Progress}}
 #' @rdname withProgress
 #' @export
 withProgress <- function(expr, min = 0, max = 1,
-                         value = min + (max - min) * 0.1,
-                         message = NULL, detail = NULL,
-                         session = getDefaultReactiveDomain(),
-                         env = parent.frame(), quoted = FALSE) {
+  value = min + (max - min) * 0.1,
+  message = NULL, detail = NULL,
+  style = getShinyOption("progress.style", default = "notification"),
+  session = getDefaultReactiveDomain(),
+  env = parent.frame(), quoted = FALSE)
+{
 
   if (!quoted)
     expr <- substitute(expr)
@@ -234,7 +282,9 @@ withProgress <- function(expr, min = 0, max = 1,
   if (is.null(session$progressStack))
     stop("'session' is not a ShinySession object.")
 
-  p <- Progress$new(session, min = min, max = max)
+  style <- match.arg(style, c("notification", "old"))
+
+  p <- Progress$new(session, min = min, max = max, style = style)
 
   session$progressStack$push(p)
   on.exit({

@@ -11,30 +11,43 @@
 #'
 #' @family input elements
 #' @examples
-#' \dontrun{
-#' # In server.R
-#' output$distPlot <- renderPlot({
-#'   # Take a dependency on input$goButton
-#'   input$goButton
+#' ## Only run examples in interactive R sessions
+#' if (interactive()) {
 #'
-#'   # Use isolate() to avoid dependency on input$obs
-#'   dist <- isolate(rnorm(input$obs))
-#'   hist(dist)
-#' })
+#' ui <- fluidPage(
+#'   sliderInput("obs", "Number of observations", 0, 1000, 500),
+#'   actionButton("goButton", "Go!"),
+#'   plotOutput("distPlot")
+#' )
 #'
-#' # In ui.R
-#' actionButton("goButton", "Go!")
+#' server <- function(input, output) {
+#'   output$distPlot <- renderPlot({
+#'     # Take a dependency on input$goButton. This will run once initially,
+#'     # because the value changes from NULL to 0.
+#'     input$goButton
+#'
+#'     # Use isolate() to avoid dependency on input$obs
+#'     dist <- isolate(rnorm(input$obs))
+#'     hist(dist)
+#'   })
+#' }
+#'
+#' shinyApp(ui, server)
+#'
 #' }
 #'
 #' @seealso \code{\link{observeEvent}} and \code{\link{eventReactive}}
-#'
 #' @export
 actionButton <- function(inputId, label, icon = NULL, width = NULL, ...) {
+
+  value <- restoreInput(id = inputId, default = NULL)
+
   tags$button(id=inputId,
     style = if (!is.null(width)) paste0("width: ", validateCssUnit(width), ";"),
     type="button",
     class="btn btn-default action-button",
-    list(icon, label),
+    `data-val` = value,
+    list(validateIcon(icon), label),
     ...
   )
 }
@@ -42,10 +55,32 @@ actionButton <- function(inputId, label, icon = NULL, width = NULL, ...) {
 #' @rdname actionButton
 #' @export
 actionLink <- function(inputId, label, icon = NULL, ...) {
+  value <- restoreInput(id = inputId, default = NULL)
+
   tags$a(id=inputId,
     href="#",
     class="action-button",
-    list(icon, label),
+    `data-val` = value,
+    list(validateIcon(icon), label),
     ...
   )
+}
+
+
+# Check that the icon parameter is valid:
+# 1) Check  if the user wants to actually add an icon:
+#    -- if icon=NULL, it means leave the icon unchanged
+#    -- if icon=character(0), it means don't add an icon or, more usefully,
+#       remove the previous icon
+# 2) If so, check that the icon has the right format (this does not check whether
+# it is a *real* icon - currently that would require a massive cross reference
+# with the "font-awesome" and the "glyphicon" libraries)
+validateIcon <- function(icon) {
+  if (is.null(icon) || identical(icon, character(0))) {
+    return(icon)
+  } else if (inherits(icon, "shiny.tag") && icon$name == "i") {
+    return(icon)
+  } else {
+    stop("Invalid icon. Use Shiny's 'icon()' function to generate a valid icon")
+  }
 }

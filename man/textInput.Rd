@@ -27,7 +27,18 @@ A text input control that can be added to a UI definition.
 Create an input control for entry of unstructured text values
 }
 \examples{
-textInput("caption", "Caption:", "Data Summary")
+## Only run examples in interactive R sessions
+if (interactive()) {
+
+ui <- fluidPage(
+  textInput("caption", "Caption", "Data Summary"),
+  verbatimTextOutput("value")
+)
+server <- function(input, output) {
+  output$value <- renderText({ input$caption })
+}
+shinyApp(ui, server)
+}
 }
 \seealso{
 \code{\link{updateTextInput}}
@@ -38,6 +49,7 @@ Other input.elements: \code{\link{actionButton}},
   \code{\link{dateRangeInput}}, \code{\link{fileInput}},
   \code{\link{numericInput}}, \code{\link{passwordInput}},
   \code{\link{radioButtons}}, \code{\link{selectInput}},
-  \code{\link{sliderInput}}, \code{\link{submitButton}}
+  \code{\link{sliderInput}}, \code{\link{submitButton}},
+  \code{\link{textAreaInput}}
 }
 

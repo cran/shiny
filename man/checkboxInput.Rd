@@ -23,7 +23,18 @@ A checkbox control that can be added to a UI definition.
 Create a checkbox that can be used to specify logical values.
 }
 \examples{
-checkboxInput("outliers", "Show outliers", FALSE)
+## Only run examples in interactive R sessions
+if (interactive()) {
+
+ui <- fluidPage(
+  checkboxInput("somevalue", "Some value", FALSE),
+  verbatimTextOutput("value")
+)
+server <- function(input, output) {
+  output$value <- renderText({ input$somevalue })
+}
+shinyApp(ui, server)
+}
 }
 \seealso{
 \code{\link{checkboxGroupInput}}, \code{\link{updateCheckboxInput}}
@@ -34,6 +45,7 @@ Other input.elements: \code{\link{actionButton}},
   \code{\link{fileInput}}, \code{\link{numericInput}},
   \code{\link{passwordInput}}, \code{\link{radioButtons}},
   \code{\link{selectInput}}, \code{\link{sliderInput}},
-  \code{\link{submitButton}}, \code{\link{textInput}}
+  \code{\link{submitButton}}, \code{\link{textAreaInput}},
+  \code{\link{textInput}}
 }
 

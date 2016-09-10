@@ -27,6 +27,12 @@
 #'   request to determine whether the \code{ui} should be used to handle the
 #'   request. Note that the entire request path must match the regular
 #'   expression in order for the match to be considered successful.
+#' @param enableBookmarking Can be one of \code{"url"}, \code{"server"}, or
+#'   \code{"disable"}. This is equivalent to calling the
+#'   \code{\link{enableBookmarking}()} function just before calling
+#'   \code{shinyApp()}. With the default value (\code{NULL}), the app will
+#'   respect the setting from any previous calls to \code{enableBookmarking()}.
+#'   See \code{\link{enableBookmarking}} for more information.
 #' @return An object that represents the app. Printing the object or passing it
 #'   to \code{\link{runApp}} will run the app.
 #'
@@ -59,10 +65,9 @@
 #'
 #'   runApp(app)
 #' }
-#'
 #' @export
 shinyApp <- function(ui=NULL, server=NULL, onStart=NULL, options=list(),
-                     uiPattern="/") {
+                     uiPattern="/", enableBookmarking = NULL) {
   if (is.null(server)) {
     stop("`server` missing from shinyApp")
   }
@@ -76,12 +81,24 @@ shinyApp <- function(ui=NULL, server=NULL, onStart=NULL, options=list(),
     server
   }
 
+  if (!is.null(enableBookmarking)) {
+    bookmarkStore <- match.arg(enableBookmarking, c("url", "server", "disable"))
+    enableBookmarking(bookmarkStore)
+  }
+
+  # Store the appDir and bookmarking-related options, so that we can read them
+  # from within the app.
+  shinyOptions(appDir = getwd())
+  appOptions <- consumeAppOptions()
+
   structure(
     list(
       httpHandler = httpHandler,
       serverFuncSource = serverFuncSource,
       onStart = onStart,
-      options = options),
+      options = options,
+      appOptions = appOptions
+    ),
     class = "shiny.appobj"
   )
 }
@@ -113,7 +130,9 @@ shinyAppDir <- function(appDir, options=list()) {
 #' @export
 shinyAppFile <- function(appFile, options=list()) {
   appFile <- normalizePath(appFile, mustWork = TRUE)
-  shinyAppDir_appR(basename(appFile), dirname(appFile), options = options)
+  appDir <- dirname(appFile)
+
+  shinyAppDir_appR(basename(appFile), appDir, options = options)
 }
 
 # This reads in an app dir in the case that there's a server.R (and ui.R/www)
@@ -178,6 +197,8 @@ shinyAppDir_serverR <- function(appDir, options=list()) {
     }
   }
 
+  shinyOptions(appDir = appDir)
+
   oldwd <- NULL
   monitorHandle <- NULL
   onStart <- function() {
@@ -199,7 +220,8 @@ shinyAppDir_serverR <- function(appDir, options=list()) {
       serverFuncSource = serverFuncSource,
       onStart = onStart,
       onEnd = onEnd,
-      options = options),
+      options = options
+    ),
     class = "shiny.appobj"
   )
 }
@@ -252,7 +274,8 @@ initAutoReloadMonitor <- function(dir) {
 
 # This reads in an app dir for a single-file application (e.g. app.R), and
 # returns a shiny.appobj.
-shinyAppDir_appR <- function(fileName, appDir, options=list()) {
+shinyAppDir_appR <- function(fileName, appDir, options=list())
+{
   fullpath <- file.path.ci(appDir, fileName)
 
   # This sources app.R and caches the content. When appObj() is called but
@@ -264,6 +287,8 @@ shinyAppDir_appR <- function(fileName, appDir, options=list()) {
 
       if (!is.shiny.appobj(result))
         stop("app.R did not return a shiny.appobj object.")
+
+      unconsumeAppOptions(result$appOptions)
 
       return(result)
     }

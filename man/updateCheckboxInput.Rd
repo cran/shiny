@@ -33,19 +33,28 @@ changes to the input object on the client.
 
 For \code{\link{radioButtons}()}, \code{\link{checkboxGroupInput}()} and
 \code{\link{selectInput}()}, the set of choices can be cleared by using
-\code{choices=character(0)}
+\code{choices=character(0)}. Similarly, for these inputs, the selected item
+can be cleared by using \code{selected=character(0)}.
 }
 \examples{
-\dontrun{
-shinyServer(function(input, output, session) {
+## Only run examples in interactive R sessions
+if (interactive()) {
 
+ui <- fluidPage(
+  sliderInput("controller", "Controller", 0, 1, 0, step = 1),
+  checkboxInput("inCheckbox", "Input checkbox")
+)
+
+server <- function(input, output, session) {
   observe({
-    # TRUE if input$controller is even, FALSE otherwise.
-    x_even <- input$controller \%\% 2 == 0
+    # TRUE if input$controller is odd, FALSE if even.
+    x_even <- input$controller \%\% 2 == 1
 
     updateCheckboxInput(session, "inCheckbox", value = x_even)
   })
-})
+}
+
+shinyApp(ui, server)
 }
 }
 \seealso{

@@ -16,7 +16,7 @@ updateDateInput(session, inputId, label = NULL, value = NULL, min = NULL,
 \item{label}{The label to set for the input object.}
 
 \item{value}{The desired date value. Either a Date object, or a string in
-\code{yyyy-mm-dd} format.}
+\code{yyyy-mm-dd} format. Supply \code{NA} to clear the date.}
 
 \item{min}{The minimum allowed date. Either a Date object, or a string in
 \code{yyyy-mm-dd} format.}
@@ -41,12 +41,19 @@ changes to the input object on the client.
 
 For \code{\link{radioButtons}()}, \code{\link{checkboxGroupInput}()} and
 \code{\link{selectInput}()}, the set of choices can be cleared by using
-\code{choices=character(0)}
+\code{choices=character(0)}. Similarly, for these inputs, the selected item
+can be cleared by using \code{selected=character(0)}.
 }
 \examples{
-\dontrun{
-shinyServer(function(input, output, session) {
+## Only run examples in interactive R sessions
+if (interactive()) {
 
+ui <- fluidPage(
+  sliderInput("controller", "Controller", 1, 30, 10),
+  dateInput("inDate", "Input date")
+)
+
+server <- function(input, output, session) {
   observe({
     # We'll use the input$controller variable multiple times, so save it as x
     # for convenience.
@@ -59,7 +66,9 @@ shinyServer(function(input, output, session) {
       max   = paste("2013-04-", x+1, sep="")
     )
   })
-})
+}
+
+shinyApp(ui, server)
 }
 }
 \seealso{

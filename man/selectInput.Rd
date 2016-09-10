@@ -70,10 +70,25 @@ The selectize input created from \code{selectizeInput()} allows
   \code{selectInput(..., selectize = FALSE)}.
 }
 \examples{
-selectInput("variable", "Variable:",
-            c("Cylinders" = "cyl",
-              "Transmission" = "am",
-              "Gears" = "gear"))
+## Only run examples in interactive R sessions
+if (interactive()) {
+
+ui <- fluidPage(
+  selectInput("variable", "Variable:",
+              c("Cylinders" = "cyl",
+                "Transmission" = "am",
+                "Gears" = "gear")),
+  tableOutput("data")
+)
+
+server <- function(input, output) {
+  output$data <- renderTable({
+    mtcars[, c("mpg", input$variable), drop = FALSE]
+  }, rownames = TRUE)
+}
+
+shinyApp(ui, server)
+}
 }
 \seealso{
 \code{\link{updateSelectInput}}
@@ -84,6 +99,7 @@ Other input.elements: \code{\link{actionButton}},
   \code{\link{dateRangeInput}}, \code{\link{fileInput}},
   \code{\link{numericInput}}, \code{\link{passwordInput}},
   \code{\link{radioButtons}}, \code{\link{sliderInput}},
-  \code{\link{submitButton}}, \code{\link{textInput}}
+  \code{\link{submitButton}}, \code{\link{textAreaInput}},
+  \code{\link{textInput}}
 }
 
