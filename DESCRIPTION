@@ -1,7 +1,7 @@
 Package: shiny
 Type: Package
 Title: Web Application Framework for R
-Version: 0.14
+Version: 0.14.1
 Authors@R: c(
     person("Winston", "Chang", role = c("aut", "cre"), email = "winston@rstudio.com"),
     person("Joe", "Cheng", role = "aut", email = "joe@rstudio.com"),
@@ -14,7 +14,7 @@ Authors@R: c(
     person(family = "jQuery contributors", role = c("ctb", "cph"),
     comment = "jQuery library; authors listed in inst/www/shared/jquery-AUTHORS.txt"),
     person(family = "jQuery UI contributors", role = c("ctb", "cph"),
-    comment = "jQuery UI library; authors listed in inst/www/shared/jqueryui/1.10.4/AUTHORS.txt"),
+    comment = "jQuery UI library; authors listed in inst/www/shared/jqueryui/AUTHORS.txt"),
     person("Mark", "Otto", role = "ctb",
     comment = "Bootstrap library"),
     person("Jacob", "Thornton", role = "ctb",
@@ -85,7 +85,7 @@ Collate: 'app.R' 'bookmark-state-local.R' 'stack.R' 'bookmark-state.R'
         'timer.R' 'update-input.R'
 RoxygenNote: 5.0.1
 NeedsCompilation: no
-Packaged: 2016-09-09 16:45:37 UTC; winston
+Packaged: 2016-10-03 19:05:54 UTC; winston
 Author: Winston Chang [aut, cre],
   Joe Cheng [aut],
   JJ Allaire [aut],
@@ -96,7 +96,7 @@ Author: Winston Chang [aut, cre],
   jQuery contributors [ctb, cph] (jQuery library; authors listed in
     inst/www/shared/jquery-AUTHORS.txt),
   jQuery UI contributors [ctb, cph] (jQuery UI library; authors listed in
-    inst/www/shared/jqueryui/1.10.4/AUTHORS.txt),
+    inst/www/shared/jqueryui/AUTHORS.txt),
   Mark Otto [ctb] (Bootstrap library),
   Jacob Thornton [ctb] (Bootstrap library),
   Bootstrap contributors [ctb] (Bootstrap library),
@@ -118,4 +118,4 @@ Author: Winston Chang [aut, cre],
   R Core Team [ctb, cph] (tar implementation from R)
 Maintainer: Winston Chang <winston@rstudio.com>
 Repository: CRAN
-Date/Publication: 2016-09-10 01:54:32
+Date/Publication: 2016-10-05 11:02:59
