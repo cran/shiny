@@ -39,9 +39,12 @@ NULL
 #'     when an app is run. See \code{\link{runApp}} for more information.}
 #'   \item{shiny.port}{A port number that Shiny will listen on. See
 #'     \code{\link{runApp}} for more information.}
-#'   \item{shiny.trace}{If \code{TRUE}, all of the messages sent between the R
-#'     server and the web browser client will be printed on the console. This
-#'     is useful for debugging.}
+#'   \item{shiny.trace}{Print messages sent between the R server and the web
+#'     browser client to the R console. This is useful for debugging. Possible
+#'     values are \code{"send"} (only print messages sent to the client),
+#'     \code{"recv"} (only print messages received by the server), \code{TRUE}
+#'     (print all messages), or \code{FALSE} (default; don't print any of these
+#'     messages).}
 #'   \item{shiny.autoreload}{If \code{TRUE} when a Shiny app is launched, the
 #'     app directory will be continually monitored for changes to files that
 #'     have the extensions: r, htm, html, js, css, png, jpg, jpeg, gif. If any
@@ -53,10 +56,10 @@ NULL
 #'
 #'     You can customize the file patterns Shiny will monitor by setting the
 #'     shiny.autoreload.pattern option. For example, to monitor only ui.R:
-#'     \code{option(shiny.autoreload.pattern = glob2rx("ui.R"))}
+#'     \code{options(shiny.autoreload.pattern = glob2rx("ui.R"))}
 #'
 #'     The default polling interval is 500 milliseconds. You can change this
-#'     by setting e.g. \code{option(shiny.autoreload.interval = 2000)} (every
+#'     by setting e.g. \code{options(shiny.autoreload.interval = 2000)} (every
 #'     two seconds).}
 #'   \item{shiny.reactlog}{If \code{TRUE}, enable logging of reactive events,
 #'     which can be viewed later with the \code{\link{showReactLog}} function.
@@ -104,6 +107,9 @@ NULL
 #'     particular error \code{e} to get displayed to the user, then set this option
 #'     to \code{TRUE} and use \code{stop(safeError(e))} for errors you want the
 #'     user to see.}
+#'   \item{shiny.testmode}{If \code{TRUE}, then enable features for testing Shiny
+#'     applications. If \code{FALSE} (the default), do not enable those features.
+#'   }
 #' }
 #' @name shiny-options
 NULL
@@ -323,6 +329,19 @@ workerId <- local({
 #' \item{doBookmark()}{
 #'   Do bookmarking and invoke the onBookmark and onBookmarked callback functions.
 #' }
+#' \item{exportTestValues()}{
+#'   Registers expressions for export in test mode, available at the test
+#'   endpoint URL.
+#' }
+#' \item{getTestEndpointUrl(inputs=TRUE, outputs=TRUE, exports=TRUE,
+#'   format="rds")}{
+#'   Returns a URL for the test endpoint. Only has an effect when the
+#'   \code{shiny.testmode} option is set to TRUE. For the inputs, outputs, and
+#'   exports arguments, TRUE means to return all of these values. It is also
+#'   possible to specify by name which values to return by providing a
+#'   character vector, as in \code{inputs=c("x", "y")}. The format can be
+#'   "rds" or "json".
+#' }
 #'
 #' @name session
 NULL
@@ -393,6 +412,10 @@ ShinySession <- R6Class(
     restoredCallbacks = 'Callbacks',
     bookmarkExclude = character(0),  # Names of inputs to exclude from bookmarking
 
+    testValueExprs = list(),
+    outputValues = list(),           # Saved output values (for testing mode)
+    testEndpointUrl = character(0),
+
     sendResponse = function(requestMsg, value) {
       if (is.null(requestMsg$tag)) {
         warning("Tried to send response for untagged message; method: ",
@@ -414,7 +437,8 @@ ShinySession <- R6Class(
       if (self$closed){
         return()
       }
-      if (isTRUE(getOption('shiny.trace')))
+      traceOption <- getOption('shiny.trace', FALSE)
+      if (isTRUE(traceOption) || traceOption == "send")
         message('SEND ',
            gsub('(?m)base64,[a-zA-Z0-9+/=]+','[base64 data]',json,perl=TRUE))
       private$websocket$send(json)
@@ -548,6 +572,98 @@ ShinySession <- R6Class(
         })
 
       }) # withReactiveDomain
+    },
+
+    # Save output values and errors. This is only used for testing mode.
+    storeOutputValues = function(values = NULL) {
+      private$outputValues <- mergeVectors(private$outputValues, values)
+    },
+
+    enableTestEndpoint = function() {
+      private$testEndpointUrl <- self$registerDataObj("shinytest", NULL,
+        function(data, req) {
+          if (!isTRUE(getOption("shiny.testmode"))) {
+            return()
+          }
+
+          params <- parseQueryString(req$QUERY_STRING)
+          # The format of the response that will be sent back. Default to "rds"
+          # unless requested otherwise. The only other valid value is "json".
+          format <- params$format %OR% "rds"
+
+          values <- list()
+
+          if (!is.null(params$inputs)) {
+
+            allInputs <- isolate(
+              reactiveValuesToList(self$input, all.names = TRUE)
+            )
+
+            # If params$inputs is "1", return all; otherwise return just the
+            # inputs that are named in params$inputs, like "x,y,z".
+            if (params$inputs == "1") {
+              values$inputs <- allInputs
+            } else {
+              items <- strsplit(params$inputs, ",")[[1]]
+              items <- intersect(items, names(allInputs))
+              values$inputs <- allInputs[items]
+            }
+          }
+
+          if (!is.null(params$outputs)) {
+
+            if (params$outputs == "1") {
+              values$outputs <- private$outputValues
+            } else {
+              items <- strsplit(params$outputs, ",")[[1]]
+              items <- intersect(items, names(private$outputValues))
+              values$outputs <- private$outputValues[items]
+            }
+          }
+
+          if (!is.null(params$exports)) {
+
+            testValueExprs <- private$testValueExprs
+            if (params$exports == "1") {
+              values$exports <- isolate(
+                lapply(private$testValueExprs, function(item) {
+                  eval(item$expr, envir = item$env)
+                })
+              )
+            } else {
+              items <- strsplit(params$exports, ",")[[1]]
+              items <- intersect(items, names(private$testValueExprs))
+              values$exports <- isolate(
+                lapply(private$testValueExprs[items], function(item) {
+                  eval(item$expr, envir = item$env)
+                })
+              )
+            }
+          }
+
+          if (length(values) == 0) {
+            return(httpResponse(400, "text/plain",
+              "No exports, inputs, or outputs requested."
+            ))
+          }
+
+          if (identical(format, "json")) {
+            content <- toJSON(values, pretty = TRUE)
+            httpResponse(200, "application/json", content)
+
+          } else if (identical(format, "rds")) {
+            tmpfile <- tempfile("shinytest", fileext = ".rds")
+            saveRDS(values, tmpfile)
+            on.exit(unlink(tmpfile))
+
+            content <- readBin(tmpfile, "raw", n = file.info(tmpfile)$size)
+            httpResponse(200, "application/octet-stream", content)
+
+          } else {
+            httpResponse(400, "text/plain", paste("Invalid format requested:", format))
+          }
+        }
+      )
     }
   ),
   public = list(
@@ -599,6 +715,8 @@ ShinySession <- R6Class(
       private$restoreCallbacks <- Callbacks$new()
       private$restoredCallbacks <- Callbacks$new()
       private$createBookmarkObservers()
+
+      private$enableTestEndpoint()
 
       private$registerSessionEndCallbacks()
 
@@ -675,6 +793,24 @@ ShinySession <- R6Class(
             stop("`fun` must be a function that takes one argument")
           }
           restoredCallbacks$register(fun)
+        },
+        exportTestValues = function(..., quoted_ = FALSE, env_ = parent.frame()) {
+          if (quoted_) {
+            dots <- list(...)
+          } else {
+            dots <- eval(substitute(alist(...)))
+          }
+
+          if (anyUnnamed(dots))
+            stop("exportTestValues: all arguments must be named.")
+
+          names(dots) <- vapply(names(dots), ns, character(1))
+
+          do.call(
+            .subset2(self, "exportTestValues"),
+            c(dots, quoted_ = TRUE, env_ = env_),
+            quote = TRUE
+          )
         }
       )
 
@@ -992,16 +1128,20 @@ ShinySession <- R6Class(
       }
 
       private$progressKeys <- character(0)
-      values <- private$invalidatedOutputValues
+      values <- as.list(private$invalidatedOutputValues)
       private$invalidatedOutputValues <- Map$new()
-      errors <- private$invalidatedOutputErrors
+      errors <- as.list(private$invalidatedOutputErrors)
       private$invalidatedOutputErrors <- Map$new()
       inputMessages <- private$inputMessageQueue
       private$inputMessageQueue <- list()
 
+      if (isTRUE(getOption("shiny.testmode"))) {
+        private$storeOutputValues(mergeVectors(values, errors))
+      }
+
       private$sendMessage(
-        errors = as.list(errors),
-        values = as.list(values),
+        errors = errors,
+        values = values,
         inputMessages = inputMessages
       )
     },
@@ -1174,6 +1314,45 @@ ShinySession <- R6Class(
       )
     },
 
+    exportTestValues = function(..., quoted_ = FALSE, env_ = parent.frame()) {
+      # Get a named list of unevaluated expressions.
+      if (quoted_) {
+        dots <- list(...)
+      } else {
+        dots <- eval(substitute(alist(...)))
+      }
+
+      if (anyUnnamed(dots))
+        stop("exportTestValues: all arguments must be named.")
+
+      # Create a named list where each item is a list with an expression and
+      # environment in which to eval the expression.
+      items <- lapply(dots, function(expr) {
+        list(expr = expr, env = env_)
+      })
+
+      private$testValueExprs <- mergeVectors(private$testValueExprs, items)
+    },
+
+    getTestEndpointUrl = function(inputs = TRUE, outputs = TRUE, exports = TRUE,
+                                  format = "rds") {
+      reqString <- function(group, value) {
+        if (isTRUE(value))
+          paste0(group, "=1")
+        else if (is.character(value))
+          paste0(group, "=", paste(value, collapse = ","))
+        else
+          ""
+      }
+      paste(
+        private$testEndpointUrl,
+        reqString("inputs", inputs),
+        reqString("outputs", outputs),
+        reqString("exports", exports),
+        paste0("format=", format),
+        sep = "&"
+      )
+    },
 
     reactlog = function(logEntry) {
       # Use sendCustomMessage instead of sendMessage, because the handler in

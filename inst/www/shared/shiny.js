@@ -1,6 +1,6 @@
 'use strict';
 
-var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
 
 //---------------------------------------------------------------------
 // Source file: ../srcjs/_start.js
@@ -675,7 +675,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
       // function to normalize hostnames
       var normalize = function normalize(hostname) {
-        if (hostname == "127.0.0.1") return "localhost";else return hostname;
+        if (hostname === "127.0.0.1") return "localhost";else return hostname;
       };
 
       // Send a 'disconnected' message to parent if we are on the same domin
@@ -686,7 +686,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
         a.href = parentUrl;
 
         // post the disconnected message if the hostnames are the same
-        if (normalize(a.hostname) == normalize(window.location.hostname)) {
+        if (normalize(a.hostname) === normalize(window.location.hostname)) {
           var protocol = a.protocol.replace(':', ''); // browser compatability
           var origin = protocol + '://' + a.hostname;
           if (a.port) origin = origin + ':' + a.port;
@@ -971,8 +971,14 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
     // Adds custom message handler - this one is exposed to the user
     function addCustomMessageHandler(type, handler) {
+      // Remove any previously defined handlers so that only the most recent one
+      // will be called
       if (customMessageHandlers[type]) {
-        throw 'handler for message of type "' + type + '" already added.';
+        var typeIdx = customMessageHandlerOrder.indexOf(type);
+        if (typeIdx !== -1) {
+          customMessageHandlerOrder.splice(typeIdx, 1);
+          delete customMessageHandlers[type];
+        }
       }
       if (typeof handler !== 'function') {
         throw 'handler must be a function.';
@@ -1305,6 +1311,12 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     };
 
     exports.progressHandlers = progressHandlers;
+
+    // Returns a URL which can be queried to get values from inside the server
+    // function. This is enabled with `options(shiny.testmode=TRUE)`.
+    this.getTestEndpointUrl = function () {
+      return "session/" + encodeURIComponent(this.config.sessionId) + "/dataobj/shinytest?w=" + encodeURIComponent(this.config.workerId) + "&nonce=" + randomId();
+    };
   }).call(ShinyApp.prototype);
 
   exports.showReconnectDialog = function () {
@@ -1361,7 +1373,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     var fadeDuration = 250;
 
     function show() {
-      var _ref = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
+      var _ref = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
 
       var _ref$html = _ref.html;
       var html = _ref$html === undefined ? '' : _ref$html;
@@ -1520,7 +1532,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     // content is non-Bootstrap. Bootstrap modals require some special handling,
     // which is coded in here.
     show: function show() {
-      var _ref2 = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
+      var _ref2 = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
 
       var _ref2$html = _ref2.html;
       var html = _ref2$html === undefined ? '' : _ref2$html;
@@ -1529,7 +1541,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
 
       // If there was an existing Bootstrap modal, then there will be a modal-
-      // backdrop div that was added outside of the modal wrapper, and it must be 
+      // backdrop div that was added outside of the modal wrapper, and it must be
       // removed; otherwise there can be multiple of these divs.
       $('.modal-backdrop').remove();
 
@@ -1541,9 +1553,11 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
         // If the wrapper's content is a Bootstrap modal, then when the inner
         // modal is hidden, remove the entire thing, including wrapper.
-        $modal.on('hidden.bs.modal', function () {
-          exports.unbindAll($modal);
-          $modal.remove();
+        $modal.on('hidden.bs.modal', function (e) {
+          if (e.target === $("#shiny-modal")[0]) {
+            exports.unbindAll($modal);
+            $modal.remove();
+          }
         });
       }
 
@@ -2675,7 +2689,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
         var aProps = Object.getOwnPropertyNames(a);
         var bProps = Object.getOwnPropertyNames(b);
 
-        if (aProps.length != bProps.length) return false;
+        if (aProps.length !== bProps.length) return false;
 
         for (var i = 0; i < aProps.length; i++) {
           var propName = aProps[i];
@@ -3075,7 +3089,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
   // inputs/outputs. `content` can be null, a string, or an object with
   // properties 'html' and 'deps'.
   exports.renderContent = function (el, content) {
-    var where = arguments.length <= 2 || arguments[2] === undefined ? "replace" : arguments[2];
+    var where = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : "replace";
 
     exports.unbindAll(el);
 
@@ -3112,7 +3126,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
   // Render HTML in a DOM element, inserting singletons into head as needed
   exports.renderHtml = function (html, el, dependencies) {
-    var where = arguments.length <= 3 || arguments[3] === undefined ? 'replace' : arguments[3];
+    var where = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : 'replace';
 
     renderDependencies(dependencies);
     return singletons.renderHtml(html, el, where);
@@ -3414,6 +3428,10 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     this.getValue = function (el) {
       throw "Not implemented";
     };
+
+    // The callback method takes one argument, whose value is boolean. If true,
+    // allow deferred (debounce or throttle) sending depending on the value of
+    // getRatePolicy. If false, send value immediately.
     this.subscribe = function (el, callback) {};
     this.unsubscribe = function (el) {};
 
@@ -3639,25 +3657,32 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
         };
       }
 
-      if (this._numValues(el) == 2) {
+      if (this._numValues(el) === 2) {
         return [convert(result.from), convert(result.to)];
       } else {
         return convert(result.from);
       }
     },
     setValue: function setValue(el, value) {
-      var slider = $(el).data('ionRangeSlider');
+      var $el = $(el);
+      var slider = $el.data('ionRangeSlider');
 
-      if (this._numValues(el) == 2 && value instanceof Array) {
-        slider.update({ from: value[0], to: value[1] });
-      } else {
-        slider.update({ from: value });
+      $el.data('immediate', true);
+      try {
+        if (this._numValues(el) === 2 && value instanceof Array) {
+          slider.update({ from: value[0], to: value[1] });
+        } else {
+          slider.update({ from: value });
+        }
+
+        forceIonSliderUpdate(slider);
+      } finally {
+        $el.data('immediate', false);
       }
-      forceIonSliderUpdate(slider);
     },
     subscribe: function subscribe(el, callback) {
       $(el).on('change.sliderInputBinding', function (event) {
-        callback(!$(el).data('updating') && !$(el).data('animating'));
+        callback(!$(el).data('immediate') && !$(el).data('animating'));
       });
     },
     unsubscribe: function unsubscribe(el) {
@@ -3669,7 +3694,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
       var msg = {};
 
       if (data.hasOwnProperty('value')) {
-        if (this._numValues(el) == 2 && data.value instanceof Array) {
+        if (this._numValues(el) === 2 && data.value instanceof Array) {
           msg.from = data.value[0];
           msg.to = data.value[1];
         } else {
@@ -3682,12 +3707,12 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
       if (data.hasOwnProperty('label')) $el.parent().find('label[for="' + $escape(el.id) + '"]').text(data.label);
 
-      $el.data('updating', true);
+      $el.data('immediate', true);
       try {
         slider.update(msg);
         forceIonSliderUpdate(slider);
       } finally {
-        $el.data('updating', false);
+        $el.data('immediate', false);
       }
     },
     getRatePolicy: function getRatePolicy() {
@@ -4031,8 +4056,8 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
       return [formatDateUTC(start), formatDateUTC(end)];
     },
-    // value must be an array of unambiguous strings like '2001-01-01', or
-    // Date objects.
+    // value must be an object, with optional fields `start` and `end`. These
+    // should be unambiguous strings like '2001-01-01', or Date objects.
     setValue: function setValue(el, value) {
       if (!(value instanceof Object)) {
         return;
@@ -4523,7 +4548,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
       // from being mistakenly selected)
       if ($el.find('i[class]').length > 0) {
         var icon_html = $el.find('i[class]')[0];
-        if (icon_html == $el.children()[0]) {
+        if (icon_html === $el.children()[0]) {
           // another check for robustness
           icon = $(icon_html).prop('outerHTML');
         }
@@ -4848,7 +4873,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     var shinyapp = exports.shinyapp = new ShinyApp();
 
     function bindOutputs() {
-      var scope = arguments.length <= 0 || arguments[0] === undefined ? document : arguments[0];
+      var scope = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : document;
 
       scope = $(scope);
 
@@ -4863,6 +4888,11 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
           // Check if ID is falsy
           if (!id) continue;
+
+          // In some uncommon cases, elements that are later in the
+          // matches array can be removed from the document by earlier
+          // iterations. See https://github.com/rstudio/shiny/issues/1399
+          if (!$.contains(document, el)) continue;
 
           var $el = $(el);
           if ($el.hasClass('shiny-bound-output')) {
@@ -4889,8 +4919,8 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     }
 
     function unbindOutputs() {
-      var scope = arguments.length <= 0 || arguments[0] === undefined ? document : arguments[0];
-      var includeSelf = arguments.length <= 1 || arguments[1] === undefined ? false : arguments[1];
+      var scope = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : document;
+      var includeSelf = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
 
       var outputs = $(scope).find('.shiny-bound-output');
 
@@ -4952,7 +4982,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     }
 
     function bindInputs() {
-      var scope = arguments.length <= 0 || arguments[0] === undefined ? document : arguments[0];
+      var scope = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : document;
 
       var bindings = inputBindings.getBindings();
 
@@ -5010,8 +5040,8 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     }
 
     function unbindInputs() {
-      var scope = arguments.length <= 0 || arguments[0] === undefined ? document : arguments[0];
-      var includeSelf = arguments.length <= 1 || arguments[1] === undefined ? false : arguments[1];
+      var scope = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : document;
+      var includeSelf = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
 
       var inputs = $(scope).find('.shiny-bound-input');
 
@@ -5040,7 +5070,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
       return bindInputs(scope);
     }
     function unbindAll(scope) {
-      var includeSelf = arguments.length <= 1 || arguments[1] === undefined ? false : arguments[1];
+      var includeSelf = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
 
       unbindInputs(scope, includeSelf);
       unbindOutputs(scope, includeSelf);
@@ -5065,7 +5095,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     // Calls .initialize() for all of the input objects in all input bindings,
     // in the given scope.
     function initializeInputs() {
-      var scope = arguments.length <= 0 || arguments[0] === undefined ? document : arguments[0];
+      var scope = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : document;
 
       var bindings = inputBindings.getBindings();
 

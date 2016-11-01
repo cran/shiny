@@ -1,7 +1,7 @@
 Package: shiny
 Type: Package
 Title: Web Application Framework for R
-Version: 0.14.1
+Version: 0.14.2
 Authors@R: c(
     person("Winston", "Chang", role = c("aut", "cre"), email = "winston@rstudio.com"),
     person("Joe", "Cheng", role = "aut", email = "joe@rstudio.com"),
@@ -82,10 +82,10 @@ Collate: 'app.R' 'bookmark-state-local.R' 'stack.R' 'bookmark-state.R'
         'render-table.R' 'run-url.R' 'serializers.R'
         'server-input-handlers.R' 'server.R' 'shiny-options.R'
         'shiny.R' 'shinyui.R' 'shinywrappers.R' 'showcase.R' 'tar.R'
-        'timer.R' 'update-input.R'
+        'test-export.R' 'timer.R' 'update-input.R'
 RoxygenNote: 5.0.1
 NeedsCompilation: no
-Packaged: 2016-10-03 19:05:54 UTC; winston
+Packaged: 2016-10-31 18:49:17 UTC; winston
 Author: Winston Chang [aut, cre],
   Joe Cheng [aut],
   JJ Allaire [aut],
@@ -118,4 +118,4 @@ Author: Winston Chang [aut, cre],
   R Core Team [ctb, cph] (tar implementation from R)
 Maintainer: Winston Chang <winston@rstudio.com>
 Repository: CRAN
-Date/Publication: 2016-10-05 11:02:59
+Date/Publication: 2016-11-01 19:53:48
