@@ -342,10 +342,18 @@ navbarPage <- function(title,
   tabs <- list(...)
   tabset <- buildTabset(tabs, "nav navbar-nav", NULL, id, selected)
 
+  # function to return plain or fluid class name
+  className <- function(name) {
+    if (fluid)
+      paste(name, "-fluid", sep="")
+    else
+      name
+  }
+
   # built the container div dynamically to support optional collapsibility
   if (collapsible) {
     navId <- paste("navbar-collapse-", p_randomInt(1000, 10000), sep="")
-    containerDiv <- div(class="container",
+    containerDiv <- div(class=className("container"),
       div(class="navbar-header",
         tags$button(type="button", class="navbar-toggle collapsed",
           `data-toggle`="collapse", `data-target`=paste0("#", navId),
@@ -359,20 +367,12 @@ navbarPage <- function(title,
       div(class="navbar-collapse collapse", id=navId, tabset$navList)
     )
   } else {
-    containerDiv <- div(class="container",
+    containerDiv <- div(class=className("container"),
       div(class="navbar-header",
         span(class="navbar-brand", pageTitle)
       ),
       tabset$navList
     )
-  }
-
-  # function to return plain or fluid class name
-  className <- function(name) {
-    if (fluid)
-      paste(name, "-fluid", sep="")
-    else
-      name
   }
 
   # build the main tab content div
@@ -935,21 +935,34 @@ textOutput <- function(outputId, container = if (inline) span else div, inline =
 #' Render a reactive output variable as verbatim text within an
 #' application page. The text will be included within an HTML \code{pre} tag.
 #' @param outputId output variable to read the value from
+#' @param placeholder if the output is empty or \code{NULL}, should an empty
+#'   rectangle be displayed to serve as a placeholder? (does not affect
+#'   behavior when the the output in nonempty)
 #' @return A verbatim text output element that can be included in a panel
 #' @details Text is HTML-escaped prior to rendering. This element is often used
-#' with the \link{renderPrint} function to preserve fixed-width formatting
-#' of printed objects.
+#'   with the \link{renderPrint} function to preserve fixed-width formatting
+#'   of printed objects.
 #' @examples
-#' mainPanel(
-#'   h4("Summary"),
-#'   verbatimTextOutput("summary"),
-#'
-#'   h4("Observations"),
-#'   tableOutput("view")
-#' )
+#' ## Only run this example in interactive R sessions
+#' if (interactive()) {
+#'   shinyApp(
+#'     ui = basicPage(
+#'       textInput("txt", "Enter the text to display below:"),
+#'       verbatimTextOutput("default"),
+#'       verbatimTextOutput("placeholder", placeholder = TRUE)
+#'     ),
+#'     server = function(input, output) {
+#'       output$default <- renderText({ input$txt })
+#'       output$placeholder <- renderText({ input$txt })
+#'     }
+#'   )
+#' }
 #' @export
-verbatimTextOutput <- function(outputId) {
-  textOutput(outputId, container = pre)
+verbatimTextOutput <- function(outputId, placeholder = FALSE) {
+  pre(id = outputId,
+      class = paste(c("shiny-text-output", if (!placeholder) "noplaceholder"),
+                    collapse = " ")
+      )
 }
 
 
@@ -1123,7 +1136,7 @@ imageOutput <- function(outputId, width = "100%", height="400px",
 #'   same \code{id} to disappear.
 #' @inheritParams textOutput
 #' @note The arguments \code{clickId} and \code{hoverId} only work for R base
-#'   graphics (see the \pkg{\link{graphics}} package). They do not work for
+#'   graphics (see the \pkg{\link[graphics:graphics-package]{graphics}} package). They do not work for
 #'   \pkg{\link[grid:grid-package]{grid}}-based graphics, such as \pkg{ggplot2},
 #'   \pkg{lattice}, and so on.
 #'
@@ -1421,6 +1434,7 @@ uiOutput <- htmlOutput
 #'   is assigned to.
 #' @param label The label that should appear on the button.
 #' @param class Additional CSS classes to apply to the tag, if any.
+#' @param ... Other arguments to pass to the container tag function.
 #'
 #' @examples
 #' \dontrun{
@@ -1443,23 +1457,25 @@ uiOutput <- htmlOutput
 #' @export
 downloadButton <- function(outputId,
                            label="Download",
-                           class=NULL) {
+                           class=NULL, ...) {
   aTag <- tags$a(id=outputId,
                  class=paste('btn btn-default shiny-download-link', class),
                  href='',
                  target='_blank',
+                 download=NA,
                  icon("download"),
-                 label)
+                 label, ...)
 }
 
 #' @rdname downloadButton
 #' @export
-downloadLink <- function(outputId, label="Download", class=NULL) {
+downloadLink <- function(outputId, label="Download", class=NULL, ...) {
   tags$a(id=outputId,
          class=paste(c('shiny-download-link', class), collapse=" "),
          href='',
          target='_blank',
-         label)
+         download=NA,
+         label, ...)
 }
 
 
@@ -1527,7 +1543,7 @@ icon <- function(name, class = NULL, lib = "font-awesome") {
   # font-awesome needs an additional dependency (glyphicon is in bootstrap)
   if (lib == "font-awesome") {
     htmlDependencies(iconTag) <- htmlDependency(
-      "font-awesome", "4.6.3", c(href="shared/font-awesome"),
+      "font-awesome", "4.7.0", c(href="shared/font-awesome"),
       stylesheet = "css/font-awesome.min.css"
     )
   }

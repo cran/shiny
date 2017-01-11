@@ -34,7 +34,7 @@ registerClient <- function(client) {
 #' JavaScript/CSS files available to their components.
 #'
 #' @param prefix The URL prefix (without slashes). Valid characters are a-z,
-#'   A-Z, 0-9, hyphen, period, and underscore; and must begin with a-z or A-Z.
+#'   A-Z, 0-9, hyphen, period, and underscore.
 #'   For example, a value of 'foo' means that any request paths that begin with
 #'   '/foo' will be mapped to the given directory.
 #' @param directoryPath The directory that contains the static resources to be
@@ -52,7 +52,7 @@ registerClient <- function(client) {
 #' @export
 addResourcePath <- function(prefix, directoryPath) {
   prefix <- prefix[1]
-  if (!grepl('^[a-z][a-z0-9\\-_.]*$', prefix, ignore.case=TRUE, perl=TRUE)) {
+  if (!grepl('^[a-z0-9\\-_][a-z0-9\\-_.]*$', prefix, ignore.case=TRUE, perl=TRUE)) {
     stop("addResourcePath called with invalid prefix; please see documentation")
   }
 
@@ -462,6 +462,9 @@ serviceApp <- function() {
 
 .shinyServerMinVersion <- '0.3.4'
 
+# Global flag that's TRUE whenever we're inside of the scope of a call to runApp
+.globals$running <- FALSE
+
 #' Run Shiny Application
 #'
 #' Runs a Shiny application. This function normally does not return; interrupt R
@@ -503,6 +506,9 @@ serviceApp <- function() {
 #'   application. If set to \code{"normal"}, displays the application normally.
 #'   Defaults to \code{"auto"}, which displays the application in the mode given
 #'   in its \code{DESCRIPTION} file, if any.
+#' @param test.mode Should the application be launched in test mode? This is
+#'   only used for recording or running automated tests. Defaults to the
+#'   \code{shiny.testmode} option, or FALSE if the option is not set.
 #'
 #' @examples
 #' \dontrun{
@@ -515,6 +521,8 @@ serviceApp <- function() {
 #'
 #' ## Only run this example in interactive R sessions
 #' if (interactive()) {
+#'   options(device.ask.default = FALSE)
+#'
 #'   # Apps can be run without a server.r and ui.r file
 #'   runApp(list(
 #'     ui = bootstrapPage(
@@ -546,9 +554,19 @@ runApp <- function(appDir=getwd(),
                                             interactive()),
                    host=getOption('shiny.host', '127.0.0.1'),
                    workerId="", quiet=FALSE,
-                   display.mode=c("auto", "normal", "showcase")) {
+                   display.mode=c("auto", "normal", "showcase"),
+                   test.mode=getOption('shiny.testmode', FALSE)) {
   on.exit({
     handlerManager$clear()
+  }, add = TRUE)
+
+  if (.globals$running) {
+    stop("Can't call `runApp()` from within `runApp()`. If your ,",
+         "application code contains `runApp()`, please remove it.")
+  }
+  .globals$running <- TRUE
+  on.exit({
+    .globals$running <- FALSE
   }, add = TRUE)
 
   # Enable per-app Shiny options
@@ -557,13 +575,51 @@ runApp <- function(appDir=getwd(),
     .globals$options <- oldOptionSet
   },add = TRUE)
 
-  if (is.null(host) || is.na(host))
-    host <- '0.0.0.0'
-
   # Make warnings print immediately
   # Set pool.scheduler to support pool package
   ops <- options(warn = 1, pool.scheduler = scheduleTask)
   on.exit(options(ops), add = TRUE)
+
+  appParts <- as.shiny.appobj(appDir)
+
+  # The lines below set some of the app's running options, which
+  # can be:
+  #   - left unspeficied (in which case the arguments' default
+  #     values from `runApp` kick in);
+  #   - passed through `shinyApp`
+  #   - passed through `runApp` (this function)
+  #   - passed through both `shinyApp` and `runApp` (the latter
+  #     takes precedence)
+  #
+  # Matrix of possibilities:
+  # | IN shinyApp | IN runApp | result       | check                                                                                                                                  |
+  # |-------------|-----------|--------------|----------------------------------------------------------------------------------------------------------------------------------------|
+  # | no          | no        | use defaults | exhaust all possibilities: if it's missing (runApp does not specify); THEN if it's not in shinyApp appParts$options; THEN use defaults |
+  # | yes         | no        | use shinyApp | if it's missing (runApp does not specify); THEN if it's in shinyApp appParts$options; THEN use shinyApp                                |
+  # | no          | yes       | use runApp   | if it's not missing (runApp specifies), use those                                                                                      |
+  # | yes         | yes       | use runApp   | if it's not missing (runApp specifies), use those                                                                                      |
+  #
+  # I tried to make this as compact and intuitive as possible,
+  # given that there are four distinct possibilities to check
+  appOps <- appParts$options
+  findVal <- function(arg, default) {
+    if (arg %in% names(appOps)) appOps[[arg]] else default
+  }
+
+  if (missing(port))
+    port <- findVal("port", port)
+  if (missing(launch.browser))
+    launch.browser <- findVal("launch.browser", launch.browser)
+  if (missing(host))
+    host <- findVal("host", host)
+  if (missing(quiet))
+    quiet <- findVal("quiet", quiet)
+  if (missing(display.mode))
+    display.mode <- findVal("display.mode", display.mode)
+  if (missing(test.mode))
+    test.mode <- findVal("test.mode", test.mode)
+
+  if (is.null(host) || is.na(host)) host <- '0.0.0.0'
 
   workerId(workerId)
 
@@ -583,6 +639,11 @@ runApp <- function(appDir=getwd(),
   # either the DESCRIPTION file for directory-based apps, or via
   # the display.mode parameter. The latter takes precedence.
   setShowcaseDefault(0)
+
+  .globals$testMode <- test.mode
+  if (test.mode) {
+    message("Running application in test mode.")
+  }
 
   # If appDir specifies a path, and display mode is specified in the
   # DESCRIPTION file at that path, apply it here.
@@ -671,8 +732,6 @@ runApp <- function(appDir=getwd(),
     }
   }
 
-  appParts <- as.shiny.appobj(appDir)
-
   # Extract appOptions (which is a list) and store them as shinyOptions, for
   # this app. (This is the only place we have to store settings that are
   # accessible both the UI and server portion of the app.)
@@ -716,12 +775,16 @@ runApp <- function(appDir=getwd(),
   # Top-level ..stacktraceoff..; matches with ..stacktraceon in observe(),
   # reactive(), Callbacks$invoke(), and others
   ..stacktraceoff..(
-    captureStackTraces(
+    captureStackTraces({
+      # If any observers were created before runApp was called, this will make
+      # sure they run once the app starts. (Issue #1013)
+      scheduleFlush()
+
       while (!.globals$stopped) {
         serviceApp()
         Sys.sleep(0.001)
       }
-    )
+    })
   )
 
   if (isTRUE(.globals$reterror)) {

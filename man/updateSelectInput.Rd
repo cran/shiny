@@ -20,14 +20,19 @@ updateSelectizeInput(session, inputId, label = NULL, choices = NULL,
 \item{label}{The label to set for the input object.}
 
 \item{choices}{List of values to select from. If elements of the list are
-named then that name rather than the value is displayed to the user.}
+named, then that name rather than the value is displayed to the user.
+This can also be a named list whose elements are (either named or
+unnamed) lists or vectors. If this is the case, the outermost names
+will be used as the "optgroup" label for the elements in the respective
+sublist. This allows you to group and label similar choices. See the
+example section for a small demo of this feature.}
 
 \item{selected}{The initially selected value (or multiple values if
 \code{multiple = TRUE}). If not specified then defaults to the first value
 for single-select lists and no values for multiple select lists.}
 
 \item{options}{A list of options. See the documentation of \pkg{selectize.js}
-for possible options (character option values inside \code{\link{I}()} will
+for possible options (character option values inside \code{\link[base]{I}()} will
 be treated as literal JavaScript code; see \code{\link{renderDataTable}()}
 for details).}
 

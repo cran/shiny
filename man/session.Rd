@@ -102,6 +102,10 @@
   This is the request that was used to initiate the websocket connection
   (as opposed to the request that downloaded the web page for the app).
 }
+\item{userData}{
+  An environment for app authors and module/package authors to store whatever
+  session-specific data they want.
+}
 \item{resetBrush(brushId)}{
   Resets/clears the brush with the given \code{brushId}, if it exists on
   any \code{imageOutput} or \code{plotOutput} in the app.
@@ -157,15 +161,15 @@
 }
 \item{exportTestValues()}{
   Registers expressions for export in test mode, available at the test
-  endpoint URL.
+  snapshot URL.
 }
-\item{getTestEndpointUrl(inputs=TRUE, outputs=TRUE, exports=TRUE,
-  format="rds")}{
-  Returns a URL for the test endpoint. Only has an effect when the
-  \code{shiny.testmode} option is set to TRUE. For the inputs, outputs, and
-  exports arguments, TRUE means to return all of these values. It is also
+\item{getTestSnapshotUrl(input=TRUE, output=TRUE, export=TRUE,
+  format="json")}{
+  Returns a URL for the test snapshots. Only has an effect when the
+  \code{shiny.testmode} option is set to TRUE. For the input, output, and
+  export arguments, TRUE means to return all of these values. It is also
   possible to specify by name which values to return by providing a
-  character vector, as in \code{inputs=c("x", "y")}. The format can be
+  character vector, as in \code{input=c("x", "y")}. The format can be
   "rds" or "json".
 }
 }
