@@ -10,6 +10,13 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
   var exports = window.Shiny = window.Shiny || {};
 
+  var origPushState = window.history.pushState;
+  window.history.pushState = function () {
+    var result = origPushState.apply(this, arguments);
+    $(document).trigger("pushstate");
+    return result;
+  };
+
   $(document).on('submit', 'form:not([action])', function (e) {
     e.preventDefault();
   });
@@ -18,7 +25,18 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
   // Source file: ../srcjs/utils.js
 
   function escapeHTML(str) {
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;").replace(/\//g, "&#x2F;");
+    var escaped = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+      "/": "&#x2F;"
+    };
+
+    return str.replace(/[&<>'"\/]/g, function (m) {
+      return escaped[m];
+    });
   }
 
   function randomId() {
@@ -58,6 +76,18 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     while (str.length < digits) {
       str = "0" + str;
     }return str;
+  }
+
+  // Round to a specified number of significant digits.
+  function roundSignif(x) {
+    var digits = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 1;
+
+    if (digits < 1) throw "Significant digits must be at least 1.";
+
+    // This converts to a string and back to a number, which is inelegant, but
+    // is less prone to FP rounding error than an alternate method which used
+    // Math.round().
+    return parseFloat(x.toPrecision(digits));
   }
 
   // Take a string with format "YYYY-MM-DD" and return a Date object.
@@ -199,6 +229,16 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
   var $escape = exports.$escape = function (val) {
     return val.replace(/([!"#$%&'()*+,.\/:;<=>?@\[\\\]^`{|}~])/g, '\\$1');
   };
+
+  // Maps a function over an object, preserving keys. Like the mapValues
+  // function from lodash.
+  function mapValues(obj, f) {
+    var newObj = {};
+    for (var key in obj) {
+      if (obj.hasOwnProperty(key)) newObj[key] = f(obj[key]);
+    }
+    return newObj;
+  }
 
   //---------------------------------------------------------------------
   // Source file: ../srcjs/browser.js
@@ -428,6 +468,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
       var self = this;
 
       this.pendingData[name] = value;
+
       if (!this.timerId && !this.reentrant) {
         this.timerId = setTimeout(function () {
           self.reentrant = true;
@@ -449,55 +490,78 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
   var InputNoResendDecorator = function InputNoResendDecorator(target, initialValues) {
     this.target = target;
-    this.lastSentValues = initialValues || {};
+    this.lastSentValues = this.reset(initialValues);
   };
   (function () {
     this.setInput = function (name, value) {
+      // Note that opts is not passed to setInput at this stage of the input
+      // decorator stack. If in the future this setInput keeps track of opts, it
+      // would be best not to store the `el`, because that could prevent it from
+      // being GC'd.
+      var _splitInputNameType = splitInputNameType(name);
+
+      var inputName = _splitInputNameType.name;
+      var inputType = _splitInputNameType.inputType;
+
       var jsonValue = JSON.stringify(value);
-      if (this.lastSentValues[name] === jsonValue) return;
-      this.lastSentValues[name] = jsonValue;
+
+      if (this.lastSentValues[inputName] && this.lastSentValues[inputName].jsonValue === jsonValue && this.lastSentValues[inputName].inputType === inputType) {
+        return;
+      }
+      this.lastSentValues[inputName] = { jsonValue: jsonValue, inputType: inputType };
       this.target.setInput(name, value);
     };
-    this.reset = function (values) {
-      values = values || {};
-      var strValues = {};
-      $.each(values, function (key, value) {
-        strValues[key] = JSON.stringify(value);
-      });
-      this.lastSentValues = strValues;
+    this.reset = function () {
+      var values = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+
+      // Given an object with flat name-value format:
+      //   { x: "abc", "y.shiny.number": 123 }
+      // Create an object in cache format and save it:
+      //   { x: { jsonValue: '"abc"', inputType: "" },
+      //     y: { jsonValue: "123", inputType: "shiny.number" } }
+      var cacheValues = {};
+
+      for (var inputName in values) {
+        if (values.hasOwnProperty(inputName)) {
+          var _splitInputNameType2 = splitInputNameType(inputName);
+
+          var name = _splitInputNameType2.name;
+          var inputType = _splitInputNameType2.inputType;
+
+          cacheValues[name] = {
+            jsonValue: JSON.stringify(values[inputName]),
+            inputType: inputType
+          };
+        }
+      }
+
+      this.lastSentValues = cacheValues;
     };
   }).call(InputNoResendDecorator.prototype);
-
-  var InputDeferDecorator = function InputDeferDecorator(target) {
-    this.target = target;
-    this.pendingInput = {};
-  };
-  (function () {
-    this.setInput = function (name, value) {
-      if (/^\./.test(name)) this.target.setInput(name, value);else this.pendingInput[name] = value;
-    };
-    this.submit = function () {
-      for (var name in this.pendingInput) {
-        if (this.pendingInput.hasOwnProperty(name)) this.target.setInput(name, this.pendingInput[name]);
-      }
-    };
-  }).call(InputDeferDecorator.prototype);
 
   var InputEventDecorator = function InputEventDecorator(target) {
     this.target = target;
   };
   (function () {
-    this.setInput = function (name, value, immediate) {
+    this.setInput = function (name, value, opts) {
       var evt = jQuery.Event("shiny:inputchanged");
-      var name2 = name.split(':');
-      evt.name = name2[0];
-      evt.inputType = name2.length > 1 ? name2[1] : '';
+
+      var input = splitInputNameType(name);
+      evt.name = input.name;
+      evt.inputType = input.inputType;
       evt.value = value;
+      evt.binding = opts.binding;
+      evt.el = opts.el;
+
       $(document).trigger(evt);
+
       if (!evt.isDefaultPrevented()) {
         name = evt.name;
         if (evt.inputType !== '') name += ':' + evt.inputType;
-        this.target.setInput(name, evt.value, immediate);
+
+        // opts aren't passed along to lower levels in the input decorator
+        // stack.
+        this.target.setInput(name, evt.value);
       }
     };
   }).call(InputEventDecorator.prototype);
@@ -507,9 +571,10 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     this.inputRatePolicies = {};
   };
   (function () {
-    this.setInput = function (name, value, immediate) {
+    this.setInput = function (name, value, opts) {
       this.$ensureInit(name);
-      if (immediate) this.inputRatePolicies[name].immediateCall(name, value, immediate);else this.inputRatePolicies[name].normalCall(name, value, immediate);
+
+      if (opts.immediate) this.inputRatePolicies[name].immediateCall(name, value, opts);else this.inputRatePolicies[name].normalCall(name, value, opts);
     };
     this.setRatePolicy = function (name, mode, millis) {
       if (mode === 'direct') {
@@ -523,10 +588,58 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     this.$ensureInit = function (name) {
       if (!(name in this.inputRatePolicies)) this.setRatePolicy(name, 'direct');
     };
-    this.$doSetInput = function (name, value) {
-      this.target.setInput(name, value);
+    this.$doSetInput = function (name, value, opts) {
+      this.target.setInput(name, value, opts);
     };
   }).call(InputRateDecorator.prototype);
+
+  var InputDeferDecorator = function InputDeferDecorator(target) {
+    this.target = target;
+    this.pendingInput = {};
+  };
+  (function () {
+    this.setInput = function (name, value, opts) {
+      if (/^\./.test(name)) this.target.setInput(name, value, opts);else this.pendingInput[name] = { value: value, opts: opts };
+    };
+    this.submit = function () {
+      for (var name in this.pendingInput) {
+        if (this.pendingInput.hasOwnProperty(name)) {
+          var input = this.pendingInput[name];
+          this.target.setInput(name, input.value, input.opts);
+        }
+      }
+    };
+  }).call(InputDeferDecorator.prototype);
+
+  var InputValidateDecorator = function InputValidateDecorator(target) {
+    this.target = target;
+  };
+  (function () {
+    this.setInput = function (name, value, opts) {
+      if (!name) throw "Can't set input with empty name.";
+
+      opts = addDefaultInputOpts(opts);
+
+      this.target.setInput(name, value, opts);
+    };
+  }).call(InputValidateDecorator.prototype);
+
+  // Merge opts with defaults, and return a new object.
+  function addDefaultInputOpts(opts) {
+    return $.extend({
+      immediate: false,
+      binding: null,
+      el: null
+    }, opts);
+  }
+
+  function splitInputNameType(name) {
+    var name2 = name.split(':');
+    return {
+      name: name2[0],
+      inputType: name2.length > 1 ? name2[1] : ''
+    };
+  }
 
   //---------------------------------------------------------------------
   // Source file: ../srcjs/shinyapp.js
@@ -536,6 +649,9 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
     // Cached input values
     this.$inputValues = {};
+
+    // Input values at initialization (and reconnect)
+    this.$initialInput = {};
 
     // Output bindings
     this.$bindings = {};
@@ -558,11 +674,6 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
     this.connect = function (initialInput) {
       if (this.$socket) throw "Connect was already called on this application object";
-
-      $.extend(initialInput, {
-        // IE8 and IE9 have some limitations with data URIs
-        ".clientdata_allowDataUriScheme": typeof WebSocket !== 'undefined'
-      });
 
       this.$socket = this.createSocket();
       this.$initialInput = initialInput;
@@ -1128,7 +1239,8 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     });
 
     addMessageHandler('config', function (message) {
-      this.config = message;
+      this.config = { workerId: message.workerId, sessionId: message.sessionId };
+      if (message.user) exports.user = message.user;
     });
 
     addMessageHandler('busy', function (message) {
@@ -1183,7 +1295,46 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     });
 
     addMessageHandler('updateQueryString', function (message) {
-      window.history.replaceState(null, null, message.queryString);
+
+      // leave the bookmarking code intact
+      if (message.mode === "replace") {
+        window.history.replaceState(null, null, message.queryString);
+        return;
+      }
+
+      var what = null;
+      if (message.queryString.charAt(0) === "#") what = "hash";else if (message.queryString.charAt(0) === "?") what = "query";else throw "The 'query' string must start with either '?' " + "(to update the query string) or with '#' (to " + "update the hash).";
+
+      var path = window.location.pathname;
+      var oldQS = window.location.search;
+      var oldHash = window.location.hash;
+
+      /* Barbara -- December 2016
+      Note: we could check if the new QS and/or hash are different
+      from the old one(s) and, if not, we could choose not to push
+      a new state (whether or not we would replace it is moot/
+      inconsequential). However, I think that it is better to
+      interpret each call to `updateQueryString` as representing
+      new state (even if the message.queryString is the same), so
+      that check isn't even performed as of right now.
+      */
+
+      var relURL = path;
+      if (what === "query") relURL += message.queryString;else relURL += oldQS + message.queryString; // leave old QS if it exists
+      window.history.pushState(null, null, relURL);
+
+      // for the case when message.queryString has both a query string
+      // and a hash (`what = "hash"` allows us to trigger the
+      // hashchange event)
+      if (message.queryString.indexOf("#") !== -1) what = "hash";
+
+      // for the case when there was a hash before, but there isn't
+      // any hash now (e.g. for when only the query string is updated)
+      if (window.location.hash !== oldHash) what = "hash";
+
+      // This event needs to be triggered manually because pushState() never
+      // causes a hashchange event to be fired,
+      if (what === "hash") $(document).trigger("hashchange");
     });
 
     addMessageHandler("resetBrush", function (message) {
@@ -1260,13 +1411,9 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
           if (typeof message.detail !== 'undefined') {
             $progress.find('.progress-detail').text(message.detail);
           }
-          if (typeof message.value !== 'undefined') {
-            if (message.value !== null) {
-              $progress.find('.progress').show();
-              $progress.find('.progress-bar').width(message.value * 100 + '%');
-            } else {
-              $progress.find('.progress').hide();
-            }
+          if (typeof message.value !== 'undefined' && message.value !== null) {
+            $progress.find('.progress').show();
+            $progress.find('.progress-bar').width(message.value * 100 + '%');
           }
         } else if (message.style === "old") {
           // For old-style (Shiny <=0.13.2) progress indicators.
@@ -1278,13 +1425,9 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
           if (typeof message.detail !== 'undefined') {
             $progress.find('.progress-detail').text(message.detail);
           }
-          if (typeof message.value !== 'undefined') {
-            if (message.value !== null) {
-              $progress.find('.progress').show();
-              $progress.find('.bar').width(message.value * 100 + '%');
-            } else {
-              $progress.find('.progress').hide();
-            }
+          if (typeof message.value !== 'undefined' && message.value !== null) {
+            $progress.find('.progress').show();
+            $progress.find('.bar').width(message.value * 100 + '%');
           }
 
           $progress.fadeIn();
@@ -2840,6 +2983,11 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
       // For reversed scales, the min and max can be reversed, so use findBox
       // to ensure correct order.
       state.boundsData = coordmap.findBox(minData, maxData);
+      // Round to 14 significant digits to avoid spurious changes in FP values
+      // (#1634).
+      state.boundsData = mapValues(state.boundsData, function (val) {
+        return roundSignif(val, 14);
+      });
 
       // We also need to attach the data bounds and panel as data attributes, so
       // that if the image is re-sent, we can grab the data bounds to create a new
@@ -3322,6 +3470,14 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     }
   });
   outputBindings.register(downloadLinkOutputBinding, 'shiny.downloadLink');
+
+  // Trigger shiny:filedownload event whenever a downloadButton/Link is clicked
+  $(document).on('click.shinyDownloadLink', 'a.shiny-download-link', function (e) {
+    var evt = jQuery.Event('shiny:filedownload');
+    evt.name = this.id;
+    evt.href = this.href;
+    $(document).trigger(evt);
+  });
 
   //---------------------------------------------------------------------
   // Source file: ../srcjs/output_binding_datatable.js
@@ -4699,9 +4855,10 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     };
   }).call(IE8FileUploader.prototype);
 
-  var FileUploader = function FileUploader(shinyapp, id, files) {
+  var FileUploader = function FileUploader(shinyapp, id, files, el) {
     this.shinyapp = shinyapp;
     this.id = id;
+    this.el = el;
     FileProcessor.call(this, files);
   };
   $.extend(FileUploader.prototype, FileProcessor.prototype);
@@ -4771,6 +4928,26 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     };
     this.onComplete = function () {
       var self = this;
+
+      var fileInfo = $.map(this.files, function (file, i) {
+        return {
+          name: file.name,
+          size: file.size,
+          type: file.type
+        };
+      });
+
+      // Trigger shiny:inputchanged. Unlike a normal shiny:inputchanged event,
+      // it's not possible to modify the information before the values get
+      // sent to the server.
+      var evt = jQuery.Event("shiny:inputchanged");
+      evt.name = this.id;
+      evt.value = fileInfo;
+      evt.binding = fileInputBinding;
+      evt.el = this.el;
+      evt.inputType = 'shiny.fileupload';
+      $(document).trigger(evt);
+
       this.makeRequest('uploadEnd', [this.jobId, this.id], function (response) {
         self.$setActive(false);
         self.onProgress(null, 1);
@@ -4779,18 +4956,6 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
         self.onError(error);
       });
       this.$bar().text('Finishing upload');
-
-      // Trigger event when all files are finished uploading.
-      var evt = jQuery.Event("shiny:fileuploaded");
-      evt.name = this.id;
-      evt.files = $.map(this.files, function (file, i) {
-        return {
-          name: file.name,
-          size: file.size,
-          type: file.type
-        };
-      });
-      $(document).trigger(evt);
     };
     this.onError = function (message) {
       this.$setError(message || '');
@@ -4857,7 +5022,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
       /*jshint nonew:false */
       new IE8FileUploader(exports.shinyapp, id, evt.target);
     } else {
-      $el.data('currentUploader', new FileUploader(exports.shinyapp, id, files));
+      $el.data('currentUploader', new FileUploader(exports.shinyapp, id, files, evt.target));
     }
   }
 
@@ -5003,19 +5168,27 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     var inputsRate = new InputRateDecorator(inputsEvent);
     var inputsDefer = new InputDeferDecorator(inputsEvent);
 
-    // By default, use rate decorator
-    var inputs = inputsRate;
-    $('input[type="submit"], button[type="submit"]').each(function () {
+    var inputs;
+    if ($('input[type="submit"], button[type="submit"]').length > 0) {
       // If there is a submit button on the page, use defer decorator
       inputs = inputsDefer;
-      $(this).click(function (event) {
-        event.preventDefault();
-        inputsDefer.submit();
-      });
-    });
 
-    exports.onInputChange = function (name, value) {
-      inputs.setInput(name, value);
+      $('input[type="submit"], button[type="submit"]').each(function () {
+        $(this).click(function (event) {
+          event.preventDefault();
+          inputsDefer.submit();
+        });
+      });
+    } else {
+      // By default, use rate decorator
+      inputs = inputsRate;
+    }
+
+    inputs = new InputValidateDecorator(inputs);
+
+    exports.onInputChange = function (name, value, opts) {
+      opts = addDefaultInputOpts(opts);
+      inputs.setInput(name, value, opts);
     };
 
     var boundInputs = {};
@@ -5026,7 +5199,9 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
         var value = binding.getValue(el);
         var type = binding.getType(el);
         if (type) id = id + ":" + type;
-        inputs.setInput(id, value, !allowDeferred);
+
+        var opts = { immediate: !allowDeferred, binding: binding, el: el };
+        inputs.setInput(id, value, opts);
       }
     }
 
@@ -5035,7 +5210,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
       var bindings = inputBindings.getBindings();
 
-      var currentValues = {};
+      var inputItems = {};
 
       for (var i = 0; i < bindings.length; i++) {
         var binding = bindings[i].binding;
@@ -5049,7 +5224,14 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
           var type = binding.getType(el);
           var effectiveId = type ? id + ":" + type : id;
-          currentValues[effectiveId] = binding.getValue(el);
+          inputItems[effectiveId] = {
+            value: binding.getValue(el),
+            opts: {
+              immediate: true,
+              binding: binding,
+              el: el
+            }
+          };
 
           /*jshint loopfunc:true*/
           var thisCallback = function () {
@@ -5078,14 +5260,10 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
             binding: binding,
             bindingType: 'input'
           });
-
-          if (shinyapp.isConnected()) {
-            valueChangeCallback(binding, el, false);
-          }
         }
       }
 
-      return currentValues;
+      return inputItems;
     }
 
     function unbindInputs() {
@@ -5125,12 +5303,11 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
       unbindOutputs(scope, includeSelf);
     }
     exports.bindAll = function (scope) {
-      // _bindAll alone returns initial values, it doesn't send them to the
-      // server. export.bindAll needs to send the values to the server, so we
-      // wrap _bindAll in a closure that does that.
-      var currentValues = _bindAll(scope);
-      $.each(currentValues, function (name, value) {
-        inputs.setInput(name, value);
+      // _bindAll returns input values; it doesn't send them to the server.
+      // export.bindAll needs to send the values to the server.
+      var currentInputItems = _bindAll(scope);
+      $.each(currentInputItems, function (name, item) {
+        inputs.setInput(name, item.value, item.opts);
       });
 
       // Not sure if the iframe stuff is an intrinsic part of bindAll, but bindAll
@@ -5173,7 +5350,16 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     // Initialize all input objects in the document, before binding
     initializeInputs(document);
 
-    var initialValues = _bindAll(document);
+    // The input values returned by _bindAll() each have a structure like this:
+    //   { value: 123, opts: { ... } }
+    // We want to only keep the value. This is because when the initialValues is
+    // passed to ShinyApp.connect(), the ShinyApp object stores the
+    // initialValues object for the duration of the session, and the opts may
+    // have a reference to the DOM element, which would prevent it from being
+    // GC'd.
+    var initialValues = mapValues(_bindAll(document), function (x) {
+      return x.value;
+    });
 
     // The server needs to know the size of each image and plot output element,
     // in case it is auto-sizing
@@ -5327,12 +5513,28 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
     initialValues['.clientdata_url_hostname'] = window.location.hostname;
     initialValues['.clientdata_url_port'] = window.location.port;
     initialValues['.clientdata_url_pathname'] = window.location.pathname;
+
+    // Send initial URL search (query string) and update it if it changes
     initialValues['.clientdata_url_search'] = window.location.search;
+
+    $(window).on('pushstate', function (e) {
+      inputs.setInput('.clientdata_url_search', window.location.search);
+    });
+
+    $(window).on('popstate', function (e) {
+      inputs.setInput('.clientdata_url_search', window.location.search);
+    });
+
     // This is only the initial value of the hash. The hash can change, but
-    // a reactive version of this isn't sent because w atching for changes can
+    // a reactive version of this isn't sent because watching for changes can
     // require polling on some browsers. The JQuery hashchange plugin can be
     // used if this capability is important.
     initialValues['.clientdata_url_hash_initial'] = window.location.hash;
+    initialValues['.clientdata_url_hash'] = window.location.hash;
+
+    $(window).on('hashchange', function (e) {
+      inputs.setInput('.clientdata_url_hash', location.hash);
+    });
 
     // The server needs to know what singletons were rendered as part of
     // the page loading
@@ -5346,6 +5548,9 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
         registerDependency(match[1], match[2]);
       }
     });
+
+    // IE8 and IE9 have some limitations with data URIs
+    initialValues['.clientdata_allowDataUriScheme'] = typeof WebSocket !== 'undefined';
 
     // We've collected all the initial values--start the server process!
     inputsNoResend.reset(initialValues);

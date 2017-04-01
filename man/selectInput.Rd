@@ -56,7 +56,7 @@ from a list of values.
 \details{
 By default, \code{selectInput()} and \code{selectizeInput()} use the
 JavaScript library \pkg{selectize.js}
-(\url{https://github.com/brianreavis/selectize.js}) to instead of the basic
+(\url{https://github.com/selectize/selectize.js}) to instead of the basic
 select input element. To use the standard HTML select input element, use
 \code{selectInput()} with \code{selectize=FALSE}.
 
@@ -115,7 +115,7 @@ shinyApp(
 \seealso{
 \code{\link{updateSelectInput}}
 
-Other input.elements: \code{\link{actionButton}},
+Other input elements: \code{\link{actionButton}},
   \code{\link{checkboxGroupInput}},
   \code{\link{checkboxInput}}, \code{\link{dateInput}},
   \code{\link{dateRangeInput}}, \code{\link{fileInput}},
@@ -124,4 +124,3 @@ Other input.elements: \code{\link{actionButton}},
   \code{\link{submitButton}}, \code{\link{textAreaInput}},
   \code{\link{textInput}}
 }
-

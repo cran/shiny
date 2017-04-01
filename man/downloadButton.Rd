@@ -3,6 +3,7 @@
 \name{downloadButton}
 \alias{downloadButton}
 \alias{downloadLink}
+\alias{downloadLink}
 \title{Create a download button or link}
 \usage{
 downloadButton(outputId, label = "Download", class = NULL, ...)
@@ -43,6 +44,5 @@ downloadLink('downloadData', 'Download')
 
 }
 \seealso{
-downloadHandler
+\code{\link{downloadHandler}}
 }
-

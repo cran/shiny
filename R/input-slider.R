@@ -164,22 +164,20 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
     `data-grid` = ticks,
     `data-grid-num` = n_ticks,
     `data-grid-snap` = FALSE,
+    `data-prettify-separator` = sep,
+    `data-prettify-enabled` = (sep != ""),
     `data-prefix` = pre,
     `data-postfix` = post,
     `data-keyboard` = TRUE,
     `data-keyboard-step` = step / (max - min) * 100,
-    `data-drag-interval` = dragRange,
+    # This value is only relevant for range sliders; for non-range sliders it
+    # causes problems since ion.RangeSlider 2.1.2 (issue #1605).
+    `data-drag-interval` = if (length(value) > 1) dragRange,
     # The following are ignored by the ion.rangeSlider, but are used by Shiny.
     `data-data-type` = dataType,
     `data-time-format` = timeFormat,
     `data-timezone` = timezone
   ))
-
-  if (sep == "") {
-    sliderProps$`data-prettify-enabled` <- "0"
-  } else {
-    sliderProps$`data-prettify-separator` <- sep
-  }
 
   # Replace any TRUE and FALSE with "true" and "false"
   sliderProps <- lapply(sliderProps, function(x) {
@@ -220,7 +218,7 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
   }
 
   dep <- list(
-    htmlDependency("ionrangeslider", "2.1.2", c(href="shared/ionrangeslider"),
+    htmlDependency("ionrangeslider", "2.1.6", c(href="shared/ionrangeslider"),
       script = "js/ion.rangeSlider.min.js",
       # ion.rangeSlider also needs normalize.css, which is already included in
       # Bootstrap.

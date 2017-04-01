@@ -201,12 +201,13 @@ workerId <- local({
 #'     }
 #'     \item{\code{singletons} - for internal use}
 #'     \item{\code{url_protocol}, \code{url_hostname}, \code{url_port},
-#'       \code{url_pathname}, \code{url_search}, and \code{url_hash_initial}
-#'       can be used to get the components of the URL that was requested by the
-#'       browser to load the Shiny app page. These values are from the
-#'       browser's perspective, so neither HTTP proxies nor Shiny Server will
-#'       affect these values. The \code{url_search} value may be used with
-#'       \code{\link{parseQueryString}} to access query string parameters.
+#'       \code{url_pathname}, \code{url_search}, \code{url_hash_initial}
+#'       and \code{url_hash} can be used to get the components of the URL
+#'       that was requested by the browser to load the Shiny app page.
+#'       These values are from the browser's perspective, so neither HTTP
+#'       proxies nor Shiny Server will affect these values. The
+#'       \code{url_search} value may be used with \code{\link{parseQueryString}}
+#'       to access query string parameters.
 #'     }
 #'   }
 #'   \code{clientData} also contains information about each output.
@@ -374,12 +375,24 @@ NULL
 #' @seealso \url{http://shiny.rstudio.com/articles/modules.html}
 #' @export
 NS <- function(namespace, id = NULL) {
+  if (length(namespace) == 0)
+    ns_prefix <- character(0)
+  else
+    ns_prefix <- paste(namespace, collapse = ns.sep)
+
+  f <- function(id) {
+    if (length(id) == 0)
+      return(ns_prefix)
+    if (length(ns_prefix) == 0)
+      return(id)
+
+    paste(ns_prefix, id, sep = ns.sep)
+  }
+
   if (missing(id)) {
-    function(id) {
-      paste(c(namespace, id), collapse = ns.sep)
-    }
+    f
   } else {
-    paste(c(namespace, id), collapse = ns.sep)
+    f(id)
   }
 }
 
@@ -415,6 +428,7 @@ ShinySession <- R6Class(
     restoreCallbacks = 'Callbacks',
     restoredCallbacks = 'Callbacks',
     bookmarkExclude = character(0),  # Names of inputs to exclude from bookmarking
+    getBookmarkExcludeFuns = list(),
 
     testMode = FALSE,                # Are we running in test mode?
     testExportExprs = list(),
@@ -579,6 +593,16 @@ ShinySession <- R6Class(
       }) # withReactiveDomain
     },
 
+    # Modules (scopes) call this to register a function that returns a vector
+    # of names to exclude from bookmarking. The function should return
+    # something like c("scope1-x", "scope1-y"). This doesn't use a Callback
+    # object because the return values of the functions are needed, but
+    # Callback$invoke() discards return values.
+    registerBookmarkExclude = function(fun) {
+      len <- length(private$getBookmarkExcludeFuns) + 1
+      private$getBookmarkExcludeFuns[[len]] <- fun
+    },
+
     # Save output values and errors. This is only used for testing mode.
     storeOutputValues = function(values = NULL) {
       private$outputValues <- mergeVectors(private$outputValues, values)
@@ -627,6 +651,12 @@ ShinySession <- R6Class(
               items <- intersect(items, names(private$outputValues))
               values$output <- private$outputValues[items]
             }
+
+            # Filter out those outputs that have the snapshotExclude attribute.
+            exclude_idx <- vapply(names(values$output), function(name) {
+              isTRUE(attr(private$.outputs[[name]], "snapshotExclude", TRUE))
+            }, logical(1))
+            values$output <- values$output[!exclude_idx]
 
             values$output <- sortByName(values$output)
           }
@@ -757,7 +787,8 @@ ShinySession <- R6Class(
       private$sendMessage(
         config = list(
           workerId = workerId(),
-          sessionId = self$token
+          sessionId = self$token,
+          user = self$user
         )
       )
     },
@@ -825,7 +856,7 @@ ShinySession <- R6Class(
           if (anyUnnamed(dots))
             stop("exportTestValues: all arguments must be named.")
 
-          names(dots) <- vapply(names(dots), ns, character(1))
+          names(dots) <- ns(names(dots))
 
           do.call(
             .subset2(self, "exportTestValues"),
@@ -939,6 +970,12 @@ ShinySession <- R6Class(
         restoredCallbacks$invoke(scopeState)
       })
 
+      # Returns the excluded names with the scope's ns prefix on them.
+      private$registerBookmarkExclude(function() {
+        excluded <- scope$getBookmarkExclude()
+        ns(excluded)
+      })
+
       scope
     },
     ns = function(id) {
@@ -1022,6 +1059,10 @@ ShinySession <- R6Class(
       }
 
       if (is.function(func)) {
+        # Extract any output attributes attached to the render function. These
+        # will be attached to the observer after it's created.
+        outputAttrs <- attr(func, "outputAttrs", TRUE)
+
         funcFormals <- formals(func)
         # ..stacktraceon matches with the top-level ..stacktraceoff.., because
         # the observer we set up below has ..stacktraceon=FALSE
@@ -1098,6 +1139,12 @@ ShinySession <- R6Class(
           else
             private$invalidatedOutputValues$set(name, value)
         }, suspended=private$shouldSuspend(name), label=label)
+
+        # If any output attributes were added to the render function attach
+        # them to observer.
+        lapply(names(outputAttrs), function(name) {
+          attr(obs, name) <- outputAttrs[[name]]
+        })
 
         obs$onInvalidate(function() {
           self$showProgress(name)
@@ -1260,8 +1307,12 @@ ShinySession <- R6Class(
       private$bookmarkExclude <- names
     },
     getBookmarkExclude = function() {
-      private$bookmarkExclude
+      scopedExcludes <- lapply(private$getBookmarkExcludeFuns, function(f) f())
+      scopedExcludes <- unlist(scopedExcludes)
+
+      c(private$bookmarkExclude, scopedExcludes)
     },
+
     onBookmark = function(fun) {
       if (!is.function(fun) || length(fun) != 1) {
         stop("`fun` must be a function that takes one argument")
@@ -1402,8 +1453,9 @@ ShinySession <- R6Class(
         )
       )
     },
-    updateQueryString = function(queryString) {
-      private$sendMessage(updateQueryString = list(queryString = queryString))
+    updateQueryString = function(queryString, mode) {
+      private$sendMessage(updateQueryString = list(
+        queryString = queryString, mode = mode))
     },
     resetBrush = function(brushId) {
       private$sendMessage(
@@ -1807,6 +1859,16 @@ outputOptions <- function(x, name, ...) {
   }
 
   .subset2(x, 'impl')$outputOptions(name, ...)
+}
+
+
+#' Mark an output to be excluded from test snapshots
+#'
+#' @param x A reactive which will be assigned to an output.
+#'
+#' @export
+snapshotExclude <- function(x) {
+  markOutputAttrs(x, snapshotExclude = TRUE)
 }
 
 

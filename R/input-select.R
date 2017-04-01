@@ -5,7 +5,7 @@
 #'
 #' By default, \code{selectInput()} and \code{selectizeInput()} use the
 #' JavaScript library \pkg{selectize.js}
-#' (\url{https://github.com/brianreavis/selectize.js}) to instead of the basic
+#' (\url{https://github.com/selectize/selectize.js}) to instead of the basic
 #' select input element. To use the standard HTML select input element, use
 #' \code{selectInput()} with \code{selectize=FALSE}.
 #'
@@ -74,8 +74,8 @@
 #' }
 #' @export
 selectInput <- function(inputId, label, choices, selected = NULL,
-                        multiple = FALSE, selectize = TRUE, width = NULL,
-                        size = NULL) {
+  multiple = FALSE, selectize = TRUE, width = NULL,
+  size = NULL) {
 
   selected <- restoreInput(id = inputId, default = selected)
 
@@ -85,7 +85,7 @@ selectInput <- function(inputId, label, choices, selected = NULL,
   # default value if it's not specified
   if (is.null(selected)) {
     if (!multiple) selected <- firstChoice(choices)
-  } else selected <- validateSelected(selected, choices, inputId)
+  } else selected <- as.character(selected)
 
   if (!is.null(size) && selectize) {
     stop("'size' argument is incompatible with 'selectize=TRUE'.")
