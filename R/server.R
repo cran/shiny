@@ -1,6 +1,7 @@
 #' @include server-input-handlers.R
 
 appsByToken <- Map$new()
+appsNeedingFlush <- Map$new()
 
 # Provide a character representation of the WS that can be used
 # as a key in a Map.
@@ -52,21 +53,23 @@ registerClient <- function(client) {
 #' @export
 addResourcePath <- function(prefix, directoryPath) {
   prefix <- prefix[1]
-  if (!grepl('^[a-z0-9\\-_][a-z0-9\\-_.]*$', prefix, ignore.case=TRUE, perl=TRUE)) {
+  if (!grepl('^[a-z0-9\\-_][a-z0-9\\-_.]*$', prefix, ignore.case = TRUE, perl = TRUE)) {
     stop("addResourcePath called with invalid prefix; please see documentation")
   }
-
   if (prefix %in% c('shared')) {
     stop("addResourcePath called with the reserved prefix '", prefix, "'; ",
          "please use a different prefix")
   }
-
-  directoryPath <- normalizePath(directoryPath, mustWork=TRUE)
-
-  existing <- .globals$resources[[prefix]]
-
-  .globals$resources[[prefix]] <- list(directoryPath=directoryPath,
-                                       func=staticHandler(directoryPath))
+  normalizedPath <- tryCatch(normalizePath(directoryPath, mustWork = TRUE),
+    error = function(e) {
+      stop("Couldn't normalize path in `addResourcePath`, with arguments: ",
+        "`prefix` = '", prefix, "'; `directoryPath` = '" , directoryPath, "'")
+    }
+  )
+  .globals$resources[[prefix]] <- list(
+    directoryPath = normalizedPath,
+    func = staticHandler(normalizedPath)
+  )
 }
 
 resourcePathHandler <- function(req) {
@@ -243,94 +246,87 @@ createAppHandlers <- function(httpHandlers, serverFuncSource) {
             } else {
               # If there's bookmarked state, save it on the session object
               shinysession$restoreContext <- RestoreContext$new(msg$data$.clientdata_url_search)
+              shinysession$createBookmarkObservers()
             }
           }
 
-          withRestoreContext(shinysession$restoreContext, {
 
-            msg$data <- applyInputHandlers(msg$data)
+          msg$data <- applyInputHandlers(msg$data)
 
-            switch(
-              msg$method,
-              init = {
+          switch(
+            msg$method,
+            init = {
 
-                serverFunc <- withReactiveDomain(NULL, serverFuncSource())
-                if (!identicalFunctionBodies(serverFunc, appvars$server)) {
-                  appvars$server <- serverFunc
-                  if (!is.null(appvars$server))
-                  {
-                    # Tag this function as the Shiny server function. A debugger may use this
-                    # tag to give this function special treatment.
-                    # It's very important that it's appvars$server itself and NOT a copy that
-                    # is invoked, otherwise new breakpoints won't be picked up.
-                    attr(appvars$server, "shinyServerFunction") <- TRUE
-                    registerDebugHook("server", appvars, "Server Function")
-                  }
+              serverFunc <- withReactiveDomain(NULL, serverFuncSource())
+              if (!identicalFunctionBodies(serverFunc, appvars$server)) {
+                appvars$server <- serverFunc
+                if (!is.null(appvars$server))
+                {
+                  # Tag this function as the Shiny server function. A debugger may use this
+                  # tag to give this function special treatment.
+                  # It's very important that it's appvars$server itself and NOT a copy that
+                  # is invoked, otherwise new breakpoints won't be picked up.
+                  attr(appvars$server, "shinyServerFunction") <- TRUE
+                  registerDebugHook("server", appvars, "Server Function")
                 }
+              }
 
-                # Check for switching into/out of showcase mode
-                if (.globals$showcaseOverride &&
-                    exists(".clientdata_url_search", where = msg$data)) {
-                  mode <- showcaseModeOfQuerystring(msg$data$.clientdata_url_search)
-                  if (!is.null(mode))
-                    shinysession$setShowcase(mode)
-                }
+              # Check for switching into/out of showcase mode
+              if (.globals$showcaseOverride &&
+                  exists(".clientdata_url_search", where = msg$data)) {
+                mode <- showcaseModeOfQuerystring(msg$data$.clientdata_url_search)
+                if (!is.null(mode))
+                  shinysession$setShowcase(mode)
+              }
 
-                shinysession$manageInputs(msg$data)
+              # In shinysession$createBookmarkObservers() above, observers may be
+              # created, which puts the shiny session in busyCount > 0 state. That
+              # prevents the manageInputs here from taking immediate effect, by
+              # default. The manageInputs here needs to take effect though, because
+              # otherwise the bookmark observers won't find the clientData they are
+              # looking for. So use `now = TRUE` to force the changes to be
+              # immediate.
+              #
+              # FIXME: break createBookmarkObservers into two separate steps, one
+              # before and one after manageInputs, and put the observer creation
+              # in the latter. Then add an assertion that busyCount == 0L when
+              # this manageInputs is called.
+              shinysession$manageInputs(msg$data, now = TRUE)
 
-                # The client tells us what singletons were rendered into
-                # the initial page
-                if (!is.null(msg$data$.clientdata_singletons)) {
-                  shinysession$singletons <- strsplit(
-                    msg$data$.clientdata_singletons, ',')[[1]]
-                }
+              # The client tells us what singletons were rendered into
+              # the initial page
+              if (!is.null(msg$data$.clientdata_singletons)) {
+                shinysession$singletons <- strsplit(
+                  msg$data$.clientdata_singletons, ',')[[1]]
+              }
 
-                local({
-                  args <- argsForServerFunc(serverFunc, shinysession)
+              local({
+                args <- argsForServerFunc(serverFunc, shinysession)
 
-                  withReactiveDomain(shinysession, {
-                    do.call(
-                      # No corresponding ..stacktraceoff; the server func is pure
-                      # user code
-                      wrapFunctionLabel(appvars$server, "server",
-                        ..stacktraceon = TRUE
-                      ),
-                      args
-                    )
-                  })
+                withReactiveDomain(shinysession, {
+                  do.call(
+                    # No corresponding ..stacktraceoff; the server func is pure
+                    # user code
+                    wrapFunctionLabel(appvars$server, "server",
+                      ..stacktraceon = TRUE
+                    ),
+                    args
+                  )
                 })
-              },
-              update = {
-                shinysession$manageInputs(msg$data)
-              },
-              shinysession$dispatch(msg)
-            )
-            shinysession$manageHiddenOutputs()
+              })
+            },
+            update = {
+              shinysession$manageInputs(msg$data)
+            },
+            shinysession$dispatch(msg)
+          )
+          # The HTTP_GUID, if it exists, is for Shiny Server reporting purposes
+          shinysession$startTiming(ws$request$HTTP_GUID)
+          shinysession$requestFlush()
 
-            if (exists(".shiny__stdout", globalenv()) &&
-                exists("HTTP_GUID", ws$request)) {
-              # safe to assume we're in shiny-server
-              shiny_stdout <- get(".shiny__stdout", globalenv())
-
-              # eNter a flushReact
-              writeLines(paste("_n_flushReact ", get("HTTP_GUID", ws$request),
-                " @ ", sprintf("%.3f", as.numeric(Sys.time())),
-                sep=""), con=shiny_stdout)
-              flush(shiny_stdout)
-
-              flushReact()
-
-              # eXit a flushReact
-              writeLines(paste("_x_flushReact ", get("HTTP_GUID", ws$request),
-                " @ ", sprintf("%.3f", as.numeric(Sys.time())),
-                sep=""), con=shiny_stdout)
-              flush(shiny_stdout)
-            } else {
-              flushReact()
-            }
-
-            flushAllSessions()
-          })
+          # Make httpuv return control to Shiny quickly, instead of waiting
+          # for the usual timeout
+          httpuv::interrupt()
         })
       }
       ws$onMessage(function(binary, msg) {
@@ -341,6 +337,7 @@ createAppHandlers <- function(httpHandlers, serverFuncSource) {
       ws$onClose(function() {
         shinysession$wsClosed()
         appsByToken$remove(shinysession$token)
+        appsNeedingFlush$remove(shinysession$token)
       })
 
       return(TRUE)
@@ -443,21 +440,20 @@ startApp <- function(appObj, port, host, quiet) {
 # Run an application that was created by \code{\link{startApp}}. This
 # function should normally be called in a \code{while(TRUE)} loop.
 serviceApp <- function() {
-  if (timerCallbacks$executeElapsed()) {
-    for (shinysession in appsByToken$values()) {
-      shinysession$manageHiddenOutputs()
-    }
+  timerCallbacks$executeElapsed()
 
-    flushReact()
-    flushAllSessions()
-  }
+  flushReact()
+  flushPendingSessions()
 
   # If this R session is interactive, then call service() with a short timeout
   # to keep the session responsive to user input
   maxTimeout <- ifelse(interactive(), 100, 1000)
 
-  timeout <- max(1, min(maxTimeout, timerCallbacks$timeToNextEvent()))
+  timeout <- max(1, min(maxTimeout, timerCallbacks$timeToNextEvent(), later::next_op_secs()))
   service(timeout)
+
+  flushReact()
+  flushPendingSessions()
 }
 
 .shinyServerMinVersion <- '0.3.4'
@@ -731,7 +727,8 @@ runApp <- function(appDir=getwd(),
           port <- p_randomInt(3000, 8000)
           # Reject ports in this range that are considered unsafe by Chrome
           # http://superuser.com/questions/188058/which-ports-are-considered-unsafe-on-chrome
-          if (!port %in% c(3659, 4045, 6000, 6665:6669)) {
+          # https://github.com/rstudio/shiny/issues/1784
+          if (!port %in% c(3659, 4045, 6000, 6665:6669, 6697)) {
             break
           }
         }
@@ -798,12 +795,8 @@ runApp <- function(appDir=getwd(),
   # reactive(), Callbacks$invoke(), and others
   ..stacktraceoff..(
     captureStackTraces({
-      # If any observers were created before runApp was called, this will make
-      # sure they run once the app starts. (Issue #1013)
-      scheduleFlush()
-
       while (!.globals$stopped) {
-        serviceApp()
+        ..stacktracefloor..(serviceApp())
         Sys.sleep(0.001)
       }
     })

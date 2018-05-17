@@ -86,22 +86,6 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
                     version = "0.10.2.2")
   }
 
-  value <- restoreInput(id = inputId, default = value)
-
-  # If step is NULL, use heuristic to set the step size.
-  findStepSize <- function(min, max, step) {
-    if (!is.null(step)) return(step)
-
-    range <- max - min
-    # If short range or decimals, use continuous decimal with ~100 points
-    if (range < 2 || hasDecimals(min) || hasDecimals(max)) {
-      step <- pretty(c(min, max), n = 100)
-      step[2] - step[1]
-    } else {
-      1
-    }
-  }
-
   if (inherits(min, "Date")) {
     if (!inherits(max, "Date") || !inherits(value, "Date"))
       stop("`min`, `max`, and `value must all be Date or non-Date objects")
@@ -120,6 +104,21 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
 
   } else {
     dataType <- "number"
+  }
+
+  # Restore bookmarked values here, after doing the type checking, because the
+  # restored value will be a character vector instead of Date or POSIXct, and we can do
+  # the conversion to correct type next.
+  value <- restoreInput(id = inputId, default = value)
+
+  if (is.character(value)) {
+    # If we got here, the value was restored from a URL-encoded bookmark.
+    if (dataType == "date") {
+      value <- as.Date(value, format = "%Y-%m-%d")
+    } else if (dataType == "datetime") {
+      # Date-times will have a format like "2018-02-28T03:46:26Z"
+      value <- as.POSIXct(value, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    }
   }
 
   step <- findStepSize(min, max, step)
@@ -169,7 +168,6 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
     `data-prefix` = pre,
     `data-postfix` = post,
     `data-keyboard` = TRUE,
-    `data-keyboard-step` = step / (max - min) * 100,
     # This value is only relevant for range sliders; for non-range sliders it
     # causes problems since ion.RangeSlider 2.1.2 (issue #1605).
     `data-drag-interval` = if (length(value) > 1) dragRange,
@@ -237,6 +235,34 @@ hasDecimals <- function(value) {
   truncatedValue <- round(value)
   return (!identical(value, truncatedValue))
 }
+
+
+# If step is NULL, use heuristic to set the step size.
+findStepSize <- function(min, max, step) {
+  if (!is.null(step)) return(step)
+
+  range <- max - min
+  # If short range or decimals, use continuous decimal with ~100 points
+  if (range < 2 || hasDecimals(min) || hasDecimals(max)) {
+    # Workaround for rounding errors (#1006): the intervals between the items
+    # returned by pretty() can have rounding errors. To avoid this, we'll use
+    # pretty() to find the min, max, and number of steps, and then use those
+    # values to calculate the step size.
+    pretty_steps <- pretty(c(min, max), n = 100)
+    n_steps <- length(pretty_steps) - 1
+    
+    # Fix for #2061: Windows has low-significance digits (like 17 digits out)
+    # even at the boundaries of pretty()'s output. Use signif(digits = 10),
+    # which should be way way less significant than any data we'd want to keep.
+    # It might make sense to use signif(steps[2] - steps[1], 10) instead, but
+    # for now trying to make the minimal change.
+    signif(digits = 10, (max(pretty_steps) - min(pretty_steps)) / n_steps)
+
+  } else {
+    1
+  }
+}
+
 
 #' @rdname sliderInput
 #'

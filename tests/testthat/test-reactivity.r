@@ -779,8 +779,8 @@ test_that("classes of reactive object", {
 })
 
 test_that("{} and NULL also work in reactive()", {
-  reactive({})
-  reactive(NULL)
+  expect_error(reactive({}), NA)
+  expect_error(reactive(NULL), NA)
 })
 
 test_that("shiny.suppressMissingContextError option works", {
@@ -1126,4 +1126,21 @@ test_that("debounce/throttle work properly (with priming)", {
 })
 test_that("debounce/throttle work properly (without priming)", {
   run_debounce_throttle(FALSE)
+})
+
+test_that("reactive domain works across async handlers", {
+  obj <- new.env()
+  hasReactiveDomain <- NULL
+  withReactiveDomain(obj, {
+    promises::then(
+      promises::promise_resolve(TRUE),
+      ~{hasReactiveDomain <<- identical(getDefaultReactiveDomain(), obj)}
+    )
+  })
+  
+  while (is.null(hasReactiveDomain) && !later::loop_empty()) {
+    later::run_now()
+  }
+  
+  testthat::expect_true(hasReactiveDomain)
 })
