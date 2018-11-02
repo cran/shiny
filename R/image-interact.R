@@ -86,6 +86,8 @@ brushedPoints <- function(df, brush, xvar = NULL, yvar = NULL,
   if (use_x) {
     if (is.null(xvar))
       stop("brushedPoints: not able to automatically infer `xvar` from brush")
+    if (!(xvar %in% names(df)))
+      stop("brushedPoints: `xvar` ('", xvar ,"')  not in names of input")
     # Extract data values from the data frame
     x <- asNumber(df[[xvar]])
     keep_rows <- keep_rows & (x >= brush$xmin & x <= brush$xmax)
@@ -93,6 +95,8 @@ brushedPoints <- function(df, brush, xvar = NULL, yvar = NULL,
   if (use_y) {
     if (is.null(yvar))
       stop("brushedPoints: not able to automatically infer `yvar` from brush")
+    if (!(yvar %in% names(df)))
+      stop("brushedPoints: `yvar` ('", yvar ,"') not in names of input")
     y <- asNumber(df[[yvar]])
     keep_rows <- keep_rows & (y >= brush$ymin & y <= brush$ymax)
   }
@@ -118,6 +122,19 @@ brushedPoints <- function(df, brush, xvar = NULL, yvar = NULL,
 #  $ xmax   : num 4.22
 #  $ ymin   : num 13.9
 #  $ ymax   : num 19.8
+#  $ coords_css:List of 4
+#   ..$ xmin: int 260
+#   ..$ xmax: int 298
+#   ..$ ymin: num 112
+#   ..$ ymax: num 205
+#  $ coords_img:List of 4
+#   ..$ xmin: int 325
+#   ..$ xmax: num 372
+#   ..$ ymin: num 140
+#   ..$ ymax: num 257
+#  $ img_css_ratio:List of 2
+#   ..$ x: num 1.25
+#   ..$ y: num 1.25
 #  $ mapping: Named list()
 #  $ domain :List of 4
 #   ..$ left  : num 1.36
@@ -143,6 +160,19 @@ brushedPoints <- function(df, brush, xvar = NULL, yvar = NULL,
 #  $ ymax     : num 20.4
 #  $ panelvar1: int 6
 #  $ panelvar2: int 0
+#  $ coords_css:List of 4
+#   ..$ xmin: int 260
+#   ..$ xmax: int 298
+#   ..$ ymin: num 112
+#   ..$ ymax: num 205
+#  $ coords_img:List of 4
+#   ..$ xmin: int 325
+#   ..$ xmax: num 372
+#   ..$ ymin: num 140
+#   ..$ ymax: num 257
+#  $ img_css_ratio:List of 2
+#   ..$ x: num 1.25
+#   ..$ y: num 1.25
 #  $ mapping  :List of 4
 #   ..$ x        : chr "wt"
 #   ..$ y        : chr "mpg"
@@ -245,18 +275,29 @@ nearPoints <- function(df, coordinfo, xvar = NULL, yvar = NULL,
   if (is.null(yvar))
     stop("nearPoints: not able to automatically infer `yvar` from coordinfo")
 
+  if (!(xvar %in% names(df)))
+    stop("nearPoints: `xvar` ('", xvar ,"')  not in names of input")
+  if (!(yvar %in% names(df)))
+    stop("nearPoints: `yvar` ('", yvar ,"')  not in names of input")
+
   # Extract data values from the data frame
   x <- asNumber(df[[xvar]])
   y <- asNumber(df[[yvar]])
 
-  # Get the pixel coordinates of the point
-  coordPx <- scaleCoords(coordinfo$x, coordinfo$y, coordinfo)
+  # Get the coordinates of the point (in img pixel coordinates)
+  point_img <- coordinfo$coords_img
 
-  # Get pixel coordinates of data points
-  dataPx <- scaleCoords(x, y, coordinfo)
+  # Get coordinates of data points (in img pixel coordinates)
+  data_img <- scaleCoords(x, y, coordinfo)
 
-  # Distances of data points to coordPx
-  dists <- sqrt((dataPx$x - coordPx$x) ^ 2 + (dataPx$y - coordPx$y) ^ 2)
+  # Get x/y distances (in css coordinates)
+  dist_css <- list(
+    x = (data_img$x - point_img$x) / coordinfo$img_css_ratio$x,
+    y = (data_img$y - point_img$y) / coordinfo$img_css_ratio$y
+  )
+
+  # Distances of data points to the target point, in css pixels.
+  dists <- sqrt(dist_css$x^2 + dist_css$y^2)
 
   if (addDist)
     df$dist_ <- dists
@@ -298,50 +339,68 @@ nearPoints <- function(df, coordinfo, xvar = NULL, yvar = NULL,
 # The coordinfo data structure will look something like the examples below.
 # For base graphics, `mapping` is empty, and there are no panelvars:
 # List of 7
-#  $ x      : num 4.37
-#  $ y      : num 12
-#  $ mapping: Named list()
-#  $ domain :List of 4
+#  $ x         : num 4.37
+#  $ y         : num 12
+#  $ coords_css:List of 2
+#   ..$ x: int 286
+#   ..$ y: int 192
+#  $ coords_img:List of 2
+#   ..$ x: num 358
+#   ..$ y: int 240
+#  $ img_css_ratio:List of 2
+#   ..$ x: num 1.25
+#   ..$ y: num 1.25
+#  $ mapping   : Named list()
+#  $ domain    :List of 4
 #   ..$ left  : num 1.36
 #   ..$ right : num 5.58
 #   ..$ bottom: num 9.46
 #   ..$ top   : num 34.8
-#  $ range  :List of 4
+#  $ range     :List of 4
 #   ..$ left  : num 58
 #   ..$ right : num 429
 #   ..$ bottom: num 226
 #   ..$ top   : num 58
-#  $ log    :List of 2
+#  $ log       :List of 2
 #   ..$ x: NULL
 #   ..$ y: NULL
-#  $ .nonce : num 0.343
+#  $ .nonce    : num 0.343
 #
 # For ggplot2, the mapping vars usually will be included, and if faceting is
 # used, they will be listed as panelvars:
 # List of 9
-#  $ x        : num 3.78
-#  $ y        : num 17.1
-#  $ panelvar1: int 6
-#  $ panelvar2: int 0
-#  $ mapping  :List of 4
+#  $ x         : num 3.78
+#  $ y         : num 17.1
+#  $ coords_css:List of 2
+#   ..$ x: int 286
+#   ..$ y: int 192
+#  $ coords_img:List of 2
+#   ..$ x: num 358
+#   ..$ y: int 240
+#  $ img_css_ratio:List of 2
+#   ..$ x: num 1.25
+#   ..$ y: num 1.25
+#  $ panelvar1 : int 6
+#  $ panelvar2 : int 0
+#  $ mapping   :List of 4
 #   ..$ x        : chr "wt"
 #   ..$ y        : chr "mpg"
 #   ..$ panelvar1: chr "cyl"
 #   ..$ panelvar2: chr "am"
-#  $ domain   :List of 4
+#  $ domain    :List of 4
 #   ..$ left  : num 1.32
 #   ..$ right : num 5.62
 #   ..$ bottom: num 9.22
 #   ..$ top   : num 35.1
-#  $ range    :List of 4
+#  $ range     :List of 4
 #   ..$ left  : num 172
 #   ..$ right : num 300
 #   ..$ bottom: num 144
 #   ..$ top   : num 28.5
-#  $ log      :List of 2
+#  $ log       :List of 2
 #   ..$ x: NULL
 #   ..$ y: NULL
-#  $ .nonce   : num 0.603
+#  $ .nonce    : num 0.603
 
 
 
