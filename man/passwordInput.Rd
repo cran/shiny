@@ -15,7 +15,7 @@ passwordInput(inputId, label, value = "", width = NULL,
 \item{value}{Initial value.}
 
 \item{width}{The width of the input, e.g. \code{'400px'}, or \code{'100\%'};
-see \code{\link{validateCssUnit}}.}
+see \code{\link[=validateCssUnit]{validateCssUnit()}}.}
 
 \item{placeholder}{A character string giving the user a hint as to what can
 be entered into the control. Internet Explorer 8 and 9 do not support this
@@ -27,6 +27,12 @@ A text input control that can be added to a UI definition.
 \description{
 Create an password control for entry of passwords.
 }
+\section{Server value}{
+
+A character string of the password input. The default value is \code{""}
+unless \code{value} is provided.
+}
+
 \examples{
 ## Only run examples in interactive R sessions
 if (interactive()) {
@@ -46,7 +52,7 @@ shinyApp(ui, server)
 }
 }
 \seealso{
-\code{\link{updateTextInput}}
+\code{\link[=updateTextInput]{updateTextInput()}}
 
 Other input elements: \code{\link{actionButton}},
   \code{\link{checkboxGroupInput}},

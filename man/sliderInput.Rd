@@ -48,10 +48,10 @@ according to some simple heuristics.}
 
 \item{animate}{\code{TRUE} to show simple animation controls with default
 settings; \code{FALSE} not to; or a custom settings list, such as those
-created using \code{\link{animationOptions}}.}
+created using \code{\link[=animationOptions]{animationOptions()}}.}
 
 \item{width}{The width of the input, e.g. \code{'400px'}, or \code{'100\%'};
-see \code{\link{validateCssUnit}}.}
+see \code{\link[=validateCssUnit]{validateCssUnit()}}.}
 
 \item{sep}{Separator between thousands places in numbers.}
 
@@ -63,7 +63,7 @@ see \code{\link{validateCssUnit}}.}
 format string, to be passed to the Javascript strftime library. See
 \url{https://github.com/samsonjs/strftime} for more details. The allowed
 format specifications are very similar, but not identical, to those for R's
-\code{\link[base]{strftime}} function. For Dates, the default is \code{"\%F"}
+\code{\link[base:strftime]{base::strftime()}} function. For Dates, the default is \code{"\%F"}
 (like \code{"2015-07-01"}), and for POSIXt, the default is \code{"\%F \%T"}
 (like \code{"2015-07-01 15:32:10"}).}
 
@@ -85,14 +85,19 @@ reaches the end.}
 
 \item{playButton}{Specifies the appearance of the play button. Valid values
 are a one-element character vector (for a simple text label), an HTML tag
-or list of tags (using \code{\link{tag}} and friends), or raw HTML (using
-\code{\link{HTML}}).}
+or list of tags (using \code{\link[=tag]{tag()}} and friends), or raw HTML (using
+\code{\link[=HTML]{HTML()}}).}
 
 \item{pauseButton}{Similar to \code{playButton}, but for the pause button.}
 }
 \description{
 Constructs a slider widget to select a numeric value from a range.
 }
+\section{Server value}{
+
+A number, or in the case of slider range, a vector of two numbers.
+}
+
 \examples{
 ## Only run examples in interactive R sessions
 if (interactive()) {
@@ -115,9 +120,10 @@ server <- function(input, output) {
 # Complete app with UI and server components
 shinyApp(ui, server)
 }
+
 }
 \seealso{
-\code{\link{updateSliderInput}}
+\code{\link[=updateSliderInput]{updateSliderInput()}}
 
 Other input elements: \code{\link{actionButton}},
   \code{\link{checkboxGroupInput}},

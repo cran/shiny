@@ -24,7 +24,7 @@ types (such as logicals and numbers) will be coerced to strings.}
 \item{inline}{If \code{TRUE}, render the choices inline (i.e. horizontally)}
 
 \item{width}{The width of the input, e.g. \code{'400px'}, or \code{'100\%'};
-see \code{\link{validateCssUnit}}.}
+see \code{\link[=validateCssUnit]{validateCssUnit()}}.}
 
 \item{choiceNames, choiceValues}{List of names and values, respectively,
 that are displayed to the user in the app and correspond to the each
@@ -44,6 +44,11 @@ Create a group of checkboxes that can be used to toggle multiple choices
 independently. The server will receive the input as a character vector of the
 selected values.
 }
+\section{Server value}{
+
+Character vector of values corresponding to the boxes that are checked.
+}
+
 \examples{
 ## Only run examples in interactive R sessions
 if (interactive()) {
@@ -86,7 +91,7 @@ shinyApp(ui, server)
 }
 }
 \seealso{
-\code{\link{checkboxInput}}, \code{\link{updateCheckboxGroupInput}}
+\code{\link[=checkboxInput]{checkboxInput()}}, \code{\link[=updateCheckboxGroupInput]{updateCheckboxGroupInput()}}
 
 Other input elements: \code{\link{actionButton}},
   \code{\link{checkboxInput}}, \code{\link{dateInput}},
