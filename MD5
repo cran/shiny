@@ -1,7 +1,7 @@
-c228755713ddc2fdfadb4466c56feb0d *DESCRIPTION
+3bba8a70e1be1e9341b90730471e2d40 *DESCRIPTION
 03017cf1b7b470a017b446ae9bbd27e7 *LICENSE
 712645c0db3c1486d2dcc5bdd316fd53 *NAMESPACE
-c40b92f073395c0895e9a9c283e4afa4 *NEWS.md
+22bd6b0b7179755c2386584c7ae00352 *NEWS.md
 ad8080c1379a6e0264ac7619e60686ef *R/app.R
 bc5f3a814689aee175d6472b08d45cff *R/bookmark-state-local.R
 2d780ad42d26b7f66d8d8196b14778fb *R/bookmark-state.R
@@ -55,7 +55,7 @@ a68766e4db71a23ba7a51a9265edea52 *R/notifications.R
 5a5e0addafd0b6778bb051aec2b37042 *R/reactive-domains.R
 cdab7d013f45b4856b88288a329d92d3 *R/reactives.R
 cb207879c1109d1d6863768f1c0630a7 *R/render-cached-plot.R
-e16c2597267fad0574858687d478fbbb *R/render-plot.R
+a718be7356dda68bbc43558ac4155fca *R/render-plot.R
 fb836975b2019666bbcf316956382058 *R/render-table.R
 e8201f65b1cb1aee324c522ee3852209 *R/run-url.R
 a112f811aaef3c0ef995a96c994e063f *R/serializers.R
@@ -282,10 +282,10 @@ f11b608c0debab353b71155aed2514fb *inst/www/shared/shiny-showcase.css
 01fb3c55c5e70f266995a692a44d4558 *inst/www/shared/shiny-showcase.js
 b4db4844f8e15ea3da7bea9749b9b925 *inst/www/shared/shiny-testmode.js
 27953d1ffac623f17ea4bcc4dc1b0716 *inst/www/shared/shiny.css
-edf23b7a5f469f9ea76ad3461582e7ef *inst/www/shared/shiny.js
-771f854b890926263e8a6dd644641ded *inst/www/shared/shiny.js.map
-1747346b1d58492848bd500be6fab74b *inst/www/shared/shiny.min.js
-860a73040cc182dc38e3c52e1b66d9c9 *inst/www/shared/shiny.min.js.map
+a5307843b90673f361ea53997a22b1d7 *inst/www/shared/shiny.js
+a55b9cff3bca8edb72266103c5bc4b92 *inst/www/shared/shiny.js.map
+ae9e403b9dab7175875af9cf38771b15 *inst/www/shared/shiny.min.js
+f254f1d2bb5ea209d2f7842d68daff1d *inst/www/shared/shiny.min.js.map
 d42bccda0accb4e937f79e5bd9540643 *inst/www/shared/showdown/compressed/showdown.js
 ae18a8f49f1a446ca1772447b95a99d0 *inst/www/shared/showdown/license.txt
 e192e62c348b4dc09fd3d9f32cd558c3 *inst/www/shared/showdown/src/showdown.js
