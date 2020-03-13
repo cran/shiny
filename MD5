@@ -1,7 +1,7 @@
-3bba8a70e1be1e9341b90730471e2d40 *DESCRIPTION
+c3db667d1e41e55f555812624980c50f *DESCRIPTION
 03017cf1b7b470a017b446ae9bbd27e7 *LICENSE
 712645c0db3c1486d2dcc5bdd316fd53 *NAMESPACE
-22bd6b0b7179755c2386584c7ae00352 *NEWS.md
+3a9f555f49edaa14575b05beb788ef9d *NEWS.md
 ad8080c1379a6e0264ac7619e60686ef *R/app.R
 bc5f3a814689aee175d6472b08d45cff *R/bookmark-state-local.R
 2d780ad42d26b7f66d8d8196b14778fb *R/bookmark-state.R
@@ -282,9 +282,9 @@ f11b608c0debab353b71155aed2514fb *inst/www/shared/shiny-showcase.css
 01fb3c55c5e70f266995a692a44d4558 *inst/www/shared/shiny-showcase.js
 b4db4844f8e15ea3da7bea9749b9b925 *inst/www/shared/shiny-testmode.js
 27953d1ffac623f17ea4bcc4dc1b0716 *inst/www/shared/shiny.css
-a5307843b90673f361ea53997a22b1d7 *inst/www/shared/shiny.js
+05dd05be8d10b222375da02dfce32b3b *inst/www/shared/shiny.js
 a55b9cff3bca8edb72266103c5bc4b92 *inst/www/shared/shiny.js.map
-ae9e403b9dab7175875af9cf38771b15 *inst/www/shared/shiny.min.js
+422892681cf27e6a66b00d42d46f10fa *inst/www/shared/shiny.min.js
 f254f1d2bb5ea209d2f7842d68daff1d *inst/www/shared/shiny.min.js.map
 d42bccda0accb4e937f79e5bd9540643 *inst/www/shared/showdown/compressed/showdown.js
 ae18a8f49f1a446ca1772447b95a99d0 *inst/www/shared/showdown/license.txt
@@ -495,7 +495,7 @@ f3ccc7d77f7c67a20c7da519f009d60a *tests/testthat/test-modules.R
 06e2b1a391244ba28bda7a9aabdb7201 *tests/testthat/test-options.R
 298684eee29907e5165a11e9a02263da *tests/testthat/test-pkgdown.R
 585cf67d87f4bf4016573be97a837e36 *tests/testthat/test-plot-coordmap.R
-17ef633b3ddbedda0cb547929e850abe *tests/testthat/test-reactivity.r
+bfb3f515ec8b1e7066f926ca8a742245 *tests/testthat/test-reactivity.r
 22ec29ba9bb3c635c49f47040b845ea1 *tests/testthat/test-reactlog.R
 bc84dab9f44f9079568a0c2e4fc83884 *tests/testthat/test-stack.R
 fe4ae96f3c7275c8fc3723712caad8dd *tests/testthat/test-stacks-deep.R
