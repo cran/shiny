@@ -4,9 +4,17 @@
 \alias{renderPlot}
 \title{Plot Output}
 \usage{
-renderPlot(expr, width = "auto", height = "auto", res = 72, ...,
-  env = parent.frame(), quoted = FALSE, execOnResize = FALSE,
-  outputArgs = list())
+renderPlot(
+  expr,
+  width = "auto",
+  height = "auto",
+  res = 72,
+  ...,
+  env = parent.frame(),
+  quoted = FALSE,
+  execOnResize = FALSE,
+  outputArgs = list()
+)
 }
 \arguments{
 \item{expr}{An expression that generates a plot.}
@@ -39,7 +47,7 @@ is useful if you want to save an expression in a variable.}
 
 \item{execOnResize}{If \code{FALSE} (the default), then when a plot is
 resized, Shiny will \emph{replay} the plot drawing commands with
-\code{\link[grDevices:replayPlot]{grDevices::replayPlot()}} instead of re-executing \code{expr}.
+\code{\link[grDevices:recordplot]{grDevices::replayPlot()}} instead of re-executing \code{expr}.
 This can result in faster plot redrawing, but there may be rare cases where
 it is undesirable. If you encounter problems when resizing a plot, you can
 have Shiny re-execute the code on resize by setting this to \code{TRUE}.}

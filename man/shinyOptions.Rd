@@ -44,18 +44,18 @@ be set globally with \code{options()} or locally (for a single app) with
 app directory will be continually monitored for changes to files that
 have the extensions: r, htm, html, js, css, png, jpg, jpeg, gif. If any
 changes are detected, all connected Shiny sessions are reloaded. This
-allows for fast feedback loops when tweaking Shiny UI.\preformatted{Since monitoring for changes is expensive (we simply poll for last
+allows for fast feedback loops when tweaking Shiny UI.
+
+Since monitoring for changes is expensive (we simply poll for last
 modified times), this feature is intended only for development.
 
 You can customize the file patterns Shiny will monitor by setting the
 shiny.autoreload.pattern option. For example, to monitor only ui.R:
-`options(shiny.autoreload.pattern = glob2rx("ui.R"))`
+\code{options(shiny.autoreload.pattern = glob2rx("ui.R"))}
 
 The default polling interval is 500 milliseconds. You can change this
-by setting e.g. `options(shiny.autoreload.interval = 2000)` (every
+by setting e.g. \code{options(shiny.autoreload.interval = 2000)} (every
 two seconds).}
-}
-
 \item{shiny.deprecation.messages (defaults to \code{TRUE})}{This controls whether messages for
 deprecated functions in Shiny will be printed. See
 \code{\link[=shinyDeprecated]{shinyDeprecated()}} for more information.}
@@ -70,7 +70,7 @@ be done 100\% correctly.}
 \code{\link[=runApp]{runApp()}} for more information.}
 \item{shiny.jquery.version (defaults to \code{3})}{The major version of jQuery to use.
 Currently only values of \code{3} or \code{1} are supported. If \code{1}, then jQuery 1.12.4 is used. If \code{3},
-then jQuery 3.4.1 is used.}
+then jQuery 3.5.1 is used.}
 \item{shiny.json.digits (defaults to \code{16})}{The number of digits to use when converting
 numbers to JSON format to send to the client web browser.}
 \item{shiny.launch.browser (defaults to \code{interactive()})}{A boolean which controls the default behavior

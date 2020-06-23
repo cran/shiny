@@ -13,7 +13,10 @@
 #' object to `print()` or [runApp()].
 #'
 #' @param ui The UI definition of the app (for example, a call to
-#'   `fluidPage()` with nested controls)
+#'   `fluidPage()` with nested controls).
+#'
+#'    If bookmarking is enabled (see `enableBookmarking`), this must be
+#'    a single argument function that returns the UI definition.
 #' @param server A function with three parameters: `input`, `output`, and
 #'   `session`. The function is called once for each session ensuring that each
 #'   app is independent.
@@ -30,11 +33,9 @@
 #'   request. Note that the entire request path must match the regular
 #'   expression in order for the match to be considered successful.
 #' @param enableBookmarking Can be one of `"url"`, `"server"`, or
-#'   `"disable"`. This is equivalent to calling the
-#'   [enableBookmarking()] function just before calling
-#'   `shinyApp()`. With the default value (`NULL`), the app will
-#'   respect the setting from any previous calls to `enableBookmarking()`.
-#'   See [enableBookmarking()] for more information.
+#'   `"disable"`. The default value, `NULL`, will respect the setting from
+#'   any previous calls to  [enableBookmarking()]. See [enableBookmarking()]
+#'   for more information on bookmarking your app.
 #' @return An object that represents the app. Printing the object or passing it
 #'   to [runApp()] will run the app.
 #'
@@ -146,15 +147,13 @@ shinyAppDir_serverR <- function(appDir, options=list()) {
   # Most of the complexity here comes from needing to hot-reload if the .R files
   # change on disk, or are created, or are removed.
 
-  # In an upcoming version of shiny, this option will go away and the new behavior will be used.
-  if (getOption("shiny.autoload.r", FALSE)) {
-    # new behavior
-
+  # In an upcoming version of shiny, this option will go away.
+  if (getOption("shiny.autoload.r", TRUE)) {
     # Create a child env which contains all the helpers and will be the shared parent
     # of the ui.R and server.R load.
     sharedEnv <- new.env(parent = globalenv())
   } else {
-    # old behavior, default
+    # old behavior
     sharedEnv <- globalenv()
   }
 
@@ -228,19 +227,24 @@ shinyAppDir_serverR <- function(appDir, options=list()) {
   onStart <- function() {
     oldwd <<- getwd()
     setwd(appDir)
-    monitorHandle <<- initAutoReloadMonitor(appDir)
     # TODO: we should support hot reloading on global.R and R/*.R changes.
-    if (getOption("shiny.autoload.r", FALSE)) {
+    if (getOption("shiny.autoload.r", TRUE)) {
       loadSupport(appDir, renv=sharedEnv, globalrenv=globalenv())
     }  else {
       if (file.exists(file.path.ci(appDir, "global.R")))
         sourceUTF8(file.path.ci(appDir, "global.R"))
     }
+    monitorHandle <<- initAutoReloadMonitor(appDir)
   }
   onStop <- function() {
     setwd(oldwd)
-    monitorHandle()
-    monitorHandle <<- NULL
+    # It is possible that while calling appObj()$onStart() or loadingSupport, an error occured
+    # This will cause `onStop` to be called.
+    #   The `oldwd` will exist, but `monitorHandle` is not a function yet.
+    if (is.function(monitorHandle)) {
+      monitorHandle()
+      monitorHandle <<- NULL
+    }
   }
 
   structure(
@@ -285,9 +289,11 @@ initAutoReloadMonitor <- function(dir) {
     ".*\\.(r|html?|js|css|png|jpe?g|gif)$")
 
   lastValue <- NULL
-  obs <- observe({
-    files <- sort(list.files(dir, pattern = filePattern, recursive = TRUE,
-      ignore.case = TRUE))
+  observeLabel <- paste0("File Auto-Reload - '", basename(dir), "'")
+  obs <- observe(label = observeLabel, {
+    files <- sort_c(
+      list.files(dir, pattern = filePattern, recursive = TRUE, ignore.case = TRUE)
+    )
     times <- file.info(files)$mtime
     names(times) <- files
 
@@ -297,13 +303,13 @@ initAutoReloadMonitor <- function(dir) {
     } else if (!identical(lastValue, times)) {
       # We've changed!
       lastValue <<- times
-      for (session in appsByToken$values()) {
-        session$reload()
-      }
+      autoReloadCallbacks$invoke()
     }
 
     invalidateLater(getOption("shiny.autoreload.interval", 500))
   })
+
+  onStop(obs$destroy)
 
   obs$destroy
 }
@@ -314,30 +320,60 @@ initAutoReloadMonitor <- function(dir) {
 #' this function loads any top-level supporting `.R` files in the `R/` directory
 #' adjacent to the `app.R`/`server.R`/`ui.R` files.
 #'
-#' At the moment, this function is "opt-in" and only called if the option
-#' `shiny.autoload.r` is set to `TRUE`.
+#' Since Shiny 1.5.0, this function is called by default when running an
+#' application. If it causes problems, there are two ways to opt out. You can
+#' either place a file named `_disable_autoload.R` in your R/ directory, or
+#' set `options(shiny.autoload.r=FALSE)`. If you set this option, it will
+#' affect any application that runs later in the same R session, potentially
+#' breaking it, so after running your application, you should unset option with
+#' `options(shiny.autoload.r=NULL)`
 #'
 #' @details The files are sourced in alphabetical order (as determined by
 #'   [list.files]). `global.R` is evaluated before the supporting R files in the
 #'   `R/` directory.
-#' @param appDir The application directory
+#' @param appDir The application directory. If `appDir` is `NULL` or
+#'   not supplied, the nearest enclosing directory that is a Shiny app, starting
+#'   with the current directory, is used.
 #' @param renv The environmeny in which the files in the `R/` directory should
 #'   be evaluated.
 #' @param globalrenv The environment in which `global.R` should be evaluated. If
 #'   `NULL`, `global.R` will not be evaluated at all.
 #' @export
-loadSupport <- function(appDir, renv=new.env(parent=globalenv()), globalrenv=globalenv()){
+loadSupport <- function(appDir=NULL, renv=new.env(parent=globalenv()), globalrenv=globalenv()){
+  require(shiny)
+
+  if (is.null(appDir)) {
+    appDir <- findEnclosingApp(".")
+  }
+
   if (!is.null(globalrenv)){
     # Evaluate global.R, if it exists.
-    if (file.exists(file.path.ci(appDir, "global.R"))){
-      sourceUTF8(file.path.ci(appDir, "global.R"), envir=globalrenv)
+    globalPath <- file.path.ci(appDir, "global.R")
+    if (file.exists(globalPath)){
+      withr::with_dir(appDir, {
+        sourceUTF8(basename(globalPath), envir=globalrenv)
+      })
     }
   }
 
-  helpersDir <- file.path(appDir, "R")
-  helpers <- list.files(helpersDir, pattern="\\.[rR]$", recursive=FALSE, full.names=TRUE)
 
-  lapply(helpers, sourceUTF8, envir=renv)
+  helpersDir <- file.path(appDir, "R")
+
+  disabled <- list.files(helpersDir, pattern="^_disable_autoload\\.r$", recursive=FALSE, ignore.case=TRUE)
+  if (length(disabled) > 0){
+    return(invisible(renv))
+  }
+
+  helpers <- list.files(helpersDir, pattern="\\.[rR]$", recursive=FALSE, full.names=TRUE)
+  # Ensure files in R/ are sorted according to the 'C' locale before sourcing.
+  # This convention is based on the default for packages. For details, see:
+  # https://cran.r-project.org/doc/manuals/r-release/R-exts.html#The-DESCRIPTION-file
+  helpers <- sort_c(helpers)
+  helpers <- normalizePath(helpers)
+
+  withr::with_dir(appDir, {
+    lapply(helpers, sourceUTF8, envir=renv)
+  })
 
   invisible(renv)
 }
@@ -349,15 +385,12 @@ shinyAppDir_appR <- function(fileName, appDir, options=list())
 {
   fullpath <- file.path.ci(appDir, fileName)
 
-  # In an upcoming version of shiny, this option will go away and the new behavior will be used.
-  if (getOption("shiny.autoload.r", FALSE)) {
-    # new behavior
-
+  # In an upcoming version of shiny, this option will go away.
+  if (getOption("shiny.autoload.r", TRUE)) {
     # Create a child env which contains all the helpers and will be the shared parent
     # of the ui.R and server.R load.
     sharedEnv <- new.env(parent = globalenv())
   } else {
-    # old behavior, default
     sharedEnv <- globalenv()
   }
 
@@ -411,16 +444,22 @@ shinyAppDir_appR <- function(fileName, appDir, options=list())
     oldwd <<- getwd()
     setwd(appDir)
     # TODO: we should support hot reloading on R/*.R changes.
-    if (getOption("shiny.autoload.r", FALSE)) {
+    if (getOption("shiny.autoload.r", TRUE)) {
       loadSupport(appDir, renv=sharedEnv, globalrenv=NULL)
     }
-    monitorHandle <<- initAutoReloadMonitor(appDir)
     if (!is.null(appObj()$onStart)) appObj()$onStart()
+    monitorHandle <<- initAutoReloadMonitor(appDir)
+    invisible()
   }
   onStop <- function() {
     setwd(oldwd)
-    monitorHandle()
-    monitorHandle <<- NULL
+    # It is possible that while calling appObj()$onStart() or loadingSupport, an error occured
+    # This will cause `onStop` to be called.
+    #   The `oldwd` will exist, but `monitorHandle` is not a function yet.
+    if (is.function(monitorHandle)) {
+      monitorHandle()
+      monitorHandle <<- NULL
+    }
   }
 
   structure(

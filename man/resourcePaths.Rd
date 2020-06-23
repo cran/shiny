@@ -29,7 +29,7 @@ supporting JavaScript/CSS files available to their components.
 \details{
 Shiny provides two ways of serving static files (i.e., resources):
 \enumerate{
-\item Static files under the \code{www/} directory are automatically made available
+\item Static files under the \verb{www/} directory are automatically made available
 under a request path that begins with \code{/}.
 \item \code{addResourcePath()} makes static files in a \code{directoryPath} available
 under a request path that begins with \code{prefix}.

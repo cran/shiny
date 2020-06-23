@@ -231,8 +231,12 @@ column <- function(width, ..., offset = 0) {
     stop("column width must be between 1 and 12")
 
   colClass <- paste0("col-sm-", width)
-  if (offset > 0)
-    colClass <- paste0(colClass, " col-sm-offset-", offset)
+  if (offset > 0) {
+    # offset-md-x is for bootstrap 4 forward compat
+    # (every size tier has been bumped up one level)
+    # https://github.com/twbs/bootstrap/blob/74b8fe7/docs/4.3/migration/index.html#L659
+    colClass <- paste0(colClass, " offset-md-", offset, " col-sm-offset-", offset)
+  }
   div(class = colClass, ...)
 }
 
@@ -566,7 +570,7 @@ splitLayout <- function(..., cellWidths = NULL, cellArgs = list()) {
 #' @param flex Determines how space should be distributed to the cells. Can be a
 #'   single value like `1` or `2` to evenly distribute the available
 #'   space; or use a vector of numbers to specify the proportions. For example,
-#'   `flex = c(2, 3)` would cause the space to be split 40\%/60\% between
+#'   `flex = c(2, 3)` would cause the space to be split 40%/60% between
 #'   two cells. NA values will cause the corresponding cell to be sized
 #'   according to its contents (without growing or shrinking).
 #' @param width,height The total amount of width and height to use for the

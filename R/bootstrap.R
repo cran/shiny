@@ -103,7 +103,7 @@ basicPage <- function(...) {
 #' *automatic* height; that is, they determine their own height based on
 #' the height of their contained elements. However,
 #' `fillPage(plotOutput("plot", height = "100%"))` will work because
-#' `fillPage` fixes the `<body>` height at 100\% of the window height.
+#' `fillPage` fixes the `<body>` height at 100% of the window height.
 #'
 #' Note that `fillPage(plotOutput("plot"))` will not cause the plot to fill
 #' the page. Like most Shiny output widgets, `plotOutput`'s default height
@@ -464,14 +464,12 @@ helpText <- function(...) {
 
 #' Create a tab panel
 #'
-#' Create a tab panel that can be included within a [tabsetPanel()] or
-#' a [navbarPage()].
 #'
 #' @param title Display title for tab
 #' @param ... UI elements to include within the tab
 #' @param value The value that should be sent when `tabsetPanel` reports
 #'   that this tab is selected. If omitted and `tabsetPanel` has an
-#'   `id`, then the title will be used..
+#'   `id`, then the title will be used.
 #' @param icon Optional icon to appear on the tab. This attribute is only
 #' valid when using a `tabPanel` within a [navbarPage()].
 #' @return A tab that can be passed to [tabsetPanel()]
@@ -489,12 +487,29 @@ helpText <- function(...) {
 #'   )
 #' )
 #' @export
+#' @describeIn tabPanel Create a tab panel that can be included within a [tabsetPanel()] or a [navbarPage()].
 tabPanel <- function(title, ..., value = title, icon = NULL) {
-  divTag <- div(class="tab-pane",
-                title=title,
-                `data-value`=value,
-                `data-icon-class` = iconClass(icon),
-                ...)
+  div(
+    class = "tab-pane",
+    title = title,
+    `data-value` = value,
+    `data-icon-class` = iconClass(icon),
+    ...
+  )
+}
+#' @export
+#' @describeIn tabPanel Create a tab panel that drops the title argument.
+#'   This function should be used within `tabsetPanel(type = "hidden")`. See [tabsetPanel()] for example usage.
+tabPanelBody <- function(value, ..., icon = NULL) {
+  if (
+    !is.character(value) ||
+    length(value) != 1 ||
+    any(is.na(value)) ||
+    nchar(value) == 0
+  ) {
+    stop("`value` must be a single, non-empty string value")
+  }
+  tabPanel(title = NULL, ..., value = value, icon = icon)
 }
 
 #' Create a tabset panel
@@ -510,8 +525,13 @@ tabPanel <- function(title, ..., value = title, icon = NULL) {
 #' @param selected The `value` (or, if none was supplied, the `title`)
 #'   of the tab that should be selected by default. If `NULL`, the first
 #'   tab will be selected.
-#' @param type Use "tabs" for the standard look; Use "pills" for a more plain
-#'   look where tabs are selected using a background fill color.
+#' @param type  \describe{
+#'   \item{`"tabs"`}{Standard tab look}
+#'   \item{`"pills"`}{Selected tabs use the background fill color}
+#'   \item{`"hidden"`}{Hides the selectable tabs. Use `type = "hidden"` in
+#'   conjunction with [tabPanelBody()] and [updateTabsetPanel()] to control the
+#'   active tab via other input controls. (See example below)}
+#' }
 #' @param position This argument is deprecated; it has been discontinued in
 #'   Bootstrap 3.
 #' @return A tabset that can be passed to [mainPanel()]
@@ -529,11 +549,40 @@ tabPanel <- function(title, ..., value = title, icon = NULL) {
 #'     tabPanel("Table", tableOutput("table"))
 #'   )
 #' )
+#'
+#' ui <- fluidPage(
+#'   sidebarLayout(
+#'     sidebarPanel(
+#'       radioButtons("controller", "Controller", 1:3, 1)
+#'     ),
+#'     mainPanel(
+#'       tabsetPanel(
+#'         id = "hidden_tabs",
+#'         # Hide the tab values.
+#'         # Can only switch tabs by using `updateTabsetPanel()`
+#'         type = "hidden",
+#'         tabPanelBody("panel1", "Panel 1 content"),
+#'         tabPanelBody("panel2", "Panel 2 content"),
+#'         tabPanelBody("panel3", "Panel 3 content")
+#'       )
+#'     )
+#'   )
+#' )
+#'
+#' server <- function(input, output, session) {
+#'   observeEvent(input$controller, {
+#'     updateTabsetPanel(session, "hidden_tabs", selected = paste0("panel", input$controller))
+#'   })
+#' }
+#'
+#' if (interactive()) {
+#'   shinyApp(ui, server)
+#' }
 #' @export
 tabsetPanel <- function(...,
                         id = NULL,
                         selected = NULL,
-                        type = c("tabs", "pills"),
+                        type = c("tabs", "pills", "hidden"),
                         position = NULL) {
   if (!is.null(position)) {
     shinyDeprecated(msg = paste("tabsetPanel: argument 'position' is deprecated;",
@@ -793,50 +842,43 @@ buildTabItem <- function(index, tabsetId, foundSelected, tabs = NULL,
 
 #' Create a text output element
 #'
-#' Render a reactive output variable as text within an application page. The
-#' text will be included within an HTML `div` tag by default.
+#' Render a reactive output variable as text within an application page.
+#' `textOutput()` is usually paired with [renderText()] and puts regular text
+#' in `<div>` or `<span>`; `verbatimTextOutput()` is usually paired with
+#' [renderPrint()] and provudes fixed-width text in a `<pre>`.
+#'
+#' In both funtions, text is HTML-escaped prior to rendering.
+#'
 #' @param outputId output variable to read the value from
 #' @param container a function to generate an HTML element to contain the text
 #' @param inline use an inline (`span()`) or block container (`div()`)
 #'   for the output
-#' @return A text output element that can be included in a panel
-#' @details Text is HTML-escaped prior to rendering. This element is often used
-#'   to display [renderText] output variables.
-#' @examples
-#' h3(textOutput("caption"))
-#' @export
-textOutput <- function(outputId, container = if (inline) span else div, inline = FALSE) {
-  container(id = outputId, class = "shiny-text-output")
-}
-
-#' Create a verbatim text output element
-#'
-#' Render a reactive output variable as verbatim text within an
-#' application page. The text will be included within an HTML `pre` tag.
-#' @param outputId output variable to read the value from
-#' @param placeholder if the output is empty or `NULL`, should an empty
-#'   rectangle be displayed to serve as a placeholder? (does not affect
-#'   behavior when the the output in nonempty)
-#' @return A verbatim text output element that can be included in a panel
-#' @details Text is HTML-escaped prior to rendering. This element is often used
-#'   with the [renderPrint] function to preserve fixed-width formatting
-#'   of printed objects.
+#' @return A output element for use in UI.
 #' @examples
 #' ## Only run this example in interactive R sessions
 #' if (interactive()) {
 #'   shinyApp(
 #'     ui = basicPage(
 #'       textInput("txt", "Enter the text to display below:"),
-#'       verbatimTextOutput("default"),
-#'       verbatimTextOutput("placeholder", placeholder = TRUE)
+#'       textOutput("text"),
+#'       verbatimTextOutput("verb")
 #'     ),
 #'     server = function(input, output) {
-#'       output$default <- renderText({ input$txt })
-#'       output$placeholder <- renderText({ input$txt })
+#'       output$text <- renderText({ input$txt })
+#'       output$verb <- renderText({ input$txt })
 #'     }
 #'   )
 #' }
 #' @export
+textOutput <- function(outputId, container = if (inline) span else div, inline = FALSE) {
+  container(id = outputId, class = "shiny-text-output")
+}
+
+#' @param placeholder if the output is empty or `NULL`, should an empty
+#'   rectangle be displayed to serve as a placeholder? (does not affect
+#'   behavior when the the output in nonempty)
+#' @export
+#' @rdname textOutput
 verbatimTextOutput <- function(outputId, placeholder = FALSE) {
   pre(id = outputId,
       class = paste(c("shiny-text-output", if (!placeholder) "noplaceholder"),
@@ -849,41 +891,8 @@ verbatimTextOutput <- function(outputId, placeholder = FALSE) {
 #' @rdname plotOutput
 #' @export
 imageOutput <- function(outputId, width = "100%", height="400px",
-                        click = NULL, dblclick = NULL,
-                        hover = NULL, hoverDelay = NULL, hoverDelayType = NULL,
-                        brush = NULL,
-                        clickId = NULL, hoverId = NULL,
+                        click = NULL, dblclick = NULL, hover = NULL, brush = NULL,
                         inline = FALSE) {
-
-  if (!is.null(clickId)) {
-    shinyDeprecated(
-      msg = paste("The 'clickId' argument is deprecated. ",
-                  "Please use 'click' instead. ",
-                  "See ?imageOutput or ?plotOutput for more information."),
-      version = "0.11.1"
-    )
-    click <- clickId
-  }
-
-  if (!is.null(hoverId)) {
-    shinyDeprecated(
-      msg = paste("The 'hoverId' argument is deprecated. ",
-                  "Please use 'hover' instead. ",
-                  "See ?imageOutput or ?plotOutput for more information."),
-      version = "0.11.1"
-    )
-    hover <- hoverId
-  }
-
-  if (!is.null(hoverDelay) || !is.null(hoverDelayType)) {
-    shinyDeprecated(
-      msg = paste("The 'hoverDelay'and 'hoverDelayType' arguments are deprecated. ",
-                  "Please use 'hoverOpts' instead. ",
-                  "See ?imageOutput or ?plotOutput for more information."),
-      version = "0.11.1"
-    )
-    hover <- hoverOpts(id = hover, delay = hoverDelay, delayType = hoverDelayType)
-  }
 
   style <- if (!inline) {
     paste("width:", validateCssUnit(width), ";", "height:", validateCssUnit(height))
@@ -991,14 +1000,6 @@ imageOutput <- function(outputId, width = "100%", height="400px",
 #'   named list with `x` and `y` elements indicating the mouse
 #'   position. To control the hover time or hover delay type, you must use
 #'   [hoverOpts()].
-#' @param clickId Deprecated; use `click` instead. Also see the
-#'   [clickOpts()] function.
-#' @param hoverId Deprecated; use `hover` instead. Also see the
-#'   [hoverOpts()] function.
-#' @param hoverDelay Deprecated; use `hover` instead. Also see the
-#'   [hoverOpts()] function.
-#' @param hoverDelayType Deprecated; use `hover` instead. Also see the
-#'   [hoverOpts()] function.
 #' @param brush Similar to the `click` argument, this can be `NULL`
 #'   (the default), a string, or an object created by the
 #'   [brushOpts()] function. If you use a value like
@@ -1182,16 +1183,12 @@ imageOutput <- function(outputId, width = "100%", height="400px",
 #' }
 #' @export
 plotOutput <- function(outputId, width = "100%", height="400px",
-                       click = NULL, dblclick = NULL,
-                       hover = NULL, hoverDelay = NULL, hoverDelayType = NULL,
-                       brush = NULL,
-                       clickId = NULL, hoverId = NULL,
+                       click = NULL, dblclick = NULL, hover = NULL, brush = NULL,
                        inline = FALSE) {
 
   # Result is the same as imageOutput, except for HTML class
   res <- imageOutput(outputId, width, height, click, dblclick,
-                     hover, hoverDelay, hoverDelayType, brush,
-                     clickId, hoverId, inline)
+                     hover, brush, inline)
 
   res$attribs$class <- "shiny-plot-output"
   res
@@ -1316,18 +1313,25 @@ uiOutput <- htmlOutput
 #'
 #' @examples
 #' \dontrun{
-#' # In server.R:
-#' output$downloadData <- downloadHandler(
-#'   filename = function() {
-#'     paste('data-', Sys.Date(), '.csv', sep='')
-#'   },
-#'   content = function(con) {
-#'     write.csv(data, con)
-#'   }
+#' ui <- fluidPage(
+#'   downloadButton("downloadData", "Download")
 #' )
 #'
-#' # In ui.R:
-#' downloadLink('downloadData', 'Download')
+#' server <- function(input, output) {
+#'   # Our dataset
+#'   data <- mtcars
+#'
+#'   output$downloadData <- downloadHandler(
+#'     filename = function() {
+#'       paste("data-", Sys.Date(), ".csv", sep="")
+#'     },
+#'     content = function(file) {
+#'       write.csv(data, file)
+#'     }
+#'   )
+#' }
+#'
+#' shinyApp(ui, server)
 #' }
 #'
 #' @aliases downloadLink
@@ -1365,7 +1369,7 @@ downloadLink <- function(outputId, label="Download", class=NULL, ...) {
 #'
 #' @param name Name of icon. Icons are drawn from the
 #'   [Font Awesome Free](https://fontawesome.com/) (currently icons from
-#'   the v5.3.1 set are supported with the v4 naming convention) and
+#'   the v5.13.0 set are supported with the v4 naming convention) and
 #'   [Glyphicons](http://getbootstrap.com/components/#glyphicons)
 #'   libraries. Note that the "fa-" and "glyphicon-" prefixes should not be used
 #'   in icon names (i.e. the "fa-calendar" icon should be referred to as
@@ -1423,7 +1427,7 @@ icon <- function(name, class = NULL, lib = "font-awesome") {
   # font-awesome needs an additional dependency (glyphicon is in bootstrap)
   if (lib == "font-awesome") {
     htmlDependencies(iconTag) <- htmlDependency(
-      "font-awesome", "5.3.1", "www/shared/fontawesome", package = "shiny",
+      "font-awesome", "5.13.0", "www/shared/fontawesome", package = "shiny",
       stylesheet = c(
         "css/all.min.css",
         "css/v4-shims.min.css"

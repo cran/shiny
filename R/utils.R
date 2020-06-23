@@ -210,6 +210,16 @@ sortByName <- function(x) {
   x[order(names(x))]
 }
 
+# Sort a vector. If a character vector, sort using C locale, which is consistent
+# across platforms. Note that radix sort uses C locale according to ?sort.
+sort_c <- function(x, ...) {
+  # Use UTF-8 encoding, because if encoding is "unknown" for non-ASCII
+  # characters, the sort() will throw an error.
+  if (is.character(x))
+    x <- enc2utf8(x)
+  sort(x, method = "radix", ...)
+}
+
 # Wrapper around list2env with a NULL check. In R <3.2.0, if an empty unnamed
 # list is passed to list2env(), it errors. But an empty named list is OK. For
 # R >=3.2.0, this wrapper is not necessary.
@@ -315,6 +325,15 @@ resolve <- function(dir, relpath) {
   }
   return(abs.path)
 }
+
+# Given a string, make sure it has a trailing slash.
+ensure_trailing_slash <- function(path) {
+  if (!grepl("/$", path)) {
+    path <- paste0(path, "/")
+  }
+  path
+}
+
 
 isWindows <- function() .Platform$OS.type == 'windows'
 
@@ -800,7 +819,14 @@ dataTablesJSON <- function(data, req) {
 
   fdata <- unname(as.matrix(fdata))
   if (is.character(fdata) && q$escape != 'false') {
-    if (q$escape == 'true') fdata <- htmlEscape(fdata) else {
+    if (q$escape == 'true') {
+      # fdata must be a matrix at this point, and we need to preserve
+      # dimensions. Note that it could be a 1xn matrix.
+      dims <- dim(fdata)
+      fdata <- htmlEscape(fdata)
+      dim(fdata) <- dims
+
+    } else {
       k <- as.integer(strsplit(q$escape, ',')[[1]])
       # use seq_len() in case escape = negative indices, e.g. c(-1, -5)
       for (j in seq_len(ncol(fdata))[k]) fdata[, j] <- htmlEscape(fdata[, j])
@@ -1805,3 +1831,65 @@ cat_line <- function(...) {
   cat(paste(..., "\n", collapse = ""))
 }
 
+select_menu <- function(choices, title = NULL, msg = "Enter one or more numbers (with spaces), or an empty line to exit: \n")
+{
+  if (!is.null(title)) {
+    cat(title, "\n", sep = "")
+  }
+  nc <- length(choices)
+  op <- paste0(format(seq_len(nc)), ": ", choices)
+  fop <- format(op)
+  cat("", fop, "", sep = "\n")
+  repeat {
+    answer <- readline(msg)
+    answer <- strsplit(answer, "[ ,]+")[[1]]
+    if (all(answer %in% seq_along(choices))) {
+      return(choices[as.integer(answer)])
+    }
+  }
+}
+
+#' @noRd
+isAppDir <- function(path) {
+
+  if (file.exists(file.path.ci(path, "app.R")))
+    return(TRUE)
+
+  if (file.exists(file.path.ci(path, "server.R"))
+      && file.exists(file.path.ci(path, "ui.R")))
+    return(TRUE)
+
+  FALSE
+}
+
+# Borrowed from rprojroot which borrowed from devtools
+#' @noRd
+is_root <- function(path) {
+  identical(
+    normalizePath(path, winslash = "/"),
+    normalizePath(dirname(path), winslash = "/")
+  )
+}
+
+#' @noRd
+findEnclosingApp <- function(path = ".") {
+  orig_path <- path
+  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+  repeat {
+    if (isAppDir(path))
+      return(path)
+    if (is_root(path))
+      stop("Shiny app not found at ", orig_path, " or in any parent directory.")
+    path <- dirname(path)
+  }
+}
+
+# Check if a package is installed, and if version is specified,
+# that we have at least that version
+is_available <- function(package, version = NULL) {
+  installed <- nzchar(system.file(package = package))
+  if (is.null(version)) {
+    return(installed)
+  }
+  installed && isTRUE(utils::packageVersion(package) >= version)
+}

@@ -5,8 +5,16 @@
 \alias{selectizeInput}
 \title{Create a select list input control}
 \usage{
-selectInput(inputId, label, choices, selected = NULL, multiple = FALSE,
-  selectize = TRUE, width = NULL, size = NULL)
+selectInput(
+  inputId,
+  label,
+  choices,
+  selected = NULL,
+  multiple = FALSE,
+  selectize = TRUE,
+  width = NULL,
+  size = NULL
+)
 
 selectizeInput(inputId, ..., options = NULL, width = NULL)
 }
@@ -20,7 +28,7 @@ named, then that name --- rather than the value --- is displayed to the
 user. It's also possible to group related inputs by providing a named list
 whose elements are (either named or unnamed) lists, vectors, or factors. In
 this case, the outermost names will be used as the group labels (leveraging
-the \code{<optgroup>} HTML tag) for the elements in the respective sublist. See
+the \verb{<optgroup>} HTML tag) for the elements in the respective sublist. See
 the example section for a small demo of this feature.}
 
 \item{selected}{The initially selected value (or multiple values if \code{multiple = TRUE}). If not specified then defaults to the first value for
@@ -41,7 +49,7 @@ but when \code{size} is set, it will be a box instead.}
 \item{...}{Arguments passed to \code{selectInput()}.}
 
 \item{options}{A list of options. See the documentation of \pkg{selectize.js}
-for possible options (character option values inside \code{\link[base:I]{base::I()}} will
+for possible options (character option values inside \code{\link[base:AsIs]{base::I()}} will
 be treated as literal JavaScript code; see \code{\link[=renderDataTable]{renderDataTable()}}
 for details).}
 }
@@ -120,13 +128,20 @@ shinyApp(
 \seealso{
 \code{\link[=updateSelectInput]{updateSelectInput()}} \code{\link[=varSelectInput]{varSelectInput()}}
 
-Other input elements: \code{\link{actionButton}},
-  \code{\link{checkboxGroupInput}},
-  \code{\link{checkboxInput}}, \code{\link{dateInput}},
-  \code{\link{dateRangeInput}}, \code{\link{fileInput}},
-  \code{\link{numericInput}}, \code{\link{passwordInput}},
-  \code{\link{radioButtons}}, \code{\link{sliderInput}},
-  \code{\link{submitButton}}, \code{\link{textAreaInput}},
-  \code{\link{textInput}}, \code{\link{varSelectInput}}
+Other input elements: 
+\code{\link{actionButton}()},
+\code{\link{checkboxGroupInput}()},
+\code{\link{checkboxInput}()},
+\code{\link{dateInput}()},
+\code{\link{dateRangeInput}()},
+\code{\link{fileInput}()},
+\code{\link{numericInput}()},
+\code{\link{passwordInput}()},
+\code{\link{radioButtons}()},
+\code{\link{sliderInput}()},
+\code{\link{submitButton}()},
+\code{\link{textAreaInput}()},
+\code{\link{textInput}()},
+\code{\link{varSelectInput}()}
 }
 \concept{input elements}
