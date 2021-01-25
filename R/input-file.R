@@ -91,7 +91,8 @@ fileInput <- function(inputId, label, multiple = FALSE, accept = NULL,
     id = inputId,
     name = inputId,
     type = "file",
-    style = "display: none;",
+    # Don't use "display: none;" style, which causes keyboard accessibility issue; instead use the following workaround: https://css-tricks.com/places-its-tempting-to-use-display-none-but-dont/
+    style = "position: absolute !important; top: -99999px !important; left: -99999px !important;",
     `data-restore` = restoredValue
   )
 
@@ -102,7 +103,7 @@ fileInput <- function(inputId, label, multiple = FALSE, accept = NULL,
 
 
   div(class = "form-group shiny-input-container",
-    style = if (!is.null(width)) paste0("width: ", validateCssUnit(width), ";"),
+    style = css(width = validateCssUnit(width)),
     shinyInputLabel(inputId, label),
 
     div(class = "input-group",

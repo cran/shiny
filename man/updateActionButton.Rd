@@ -5,20 +5,29 @@
 \alias{updateActionLink}
 \title{Change the label or icon of an action button on the client}
 \usage{
-updateActionButton(session, inputId, label = NULL, icon = NULL)
+updateActionButton(
+  session = getDefaultReactiveDomain(),
+  inputId,
+  label = NULL,
+  icon = NULL
+)
 
-updateActionLink(session, inputId, label = NULL, icon = NULL)
+updateActionLink(
+  session = getDefaultReactiveDomain(),
+  inputId,
+  label = NULL,
+  icon = NULL
+)
 }
 \arguments{
 \item{session}{The \code{session} object passed to function given to
-\code{shinyServer}.}
+\code{shinyServer}. Default is \code{getDefaultReactiveDomain()}.}
 
 \item{inputId}{The id of the input object.}
 
 \item{label}{The label to set for the input object.}
 
-\item{icon}{The icon to set for the input object. To remove the
-current icon, use \code{icon=character(0)}.}
+\item{icon}{An optional \code{\link[=icon]{icon()}} to appear on the button.}
 }
 \description{
 Change the label or icon of an action button on the client

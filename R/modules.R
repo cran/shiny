@@ -31,17 +31,42 @@ createSessionProxy <- function(parentSession, ...) {
   # but not `session$userData <- TRUE`) from within a module
   # without any hacks (see PR #1732)
   if (identical(x[[name]], value)) return(x)
+
+  # Special case for $options (issue #3112)
+  if (name == "options") {
+    session <- find_ancestor_session(x)
+    session[[name]] <- value
+    return(x)
+  }
+
   stop("Attempted to assign value on session proxy.")
 }
 
 `[[<-.session_proxy` <- `$<-.session_proxy`
+
+# Given a session_proxy, search `parent` recursively to find the real
+# ShinySession object. If given a ShinySession, simply return it.
+find_ancestor_session <- function(x, depth = 20) {
+  if (depth < 0) {
+    stop("ShinySession not found")
+  }
+  if (inherits(x, "ShinySession")) {
+    return(x)
+  }
+  if (inherits(x, "session_proxy")) {
+    return(find_ancestor_session(.subset2(x, "parent"), depth-1))
+  }
+
+  stop("ShinySession not found")
+}
+
 
 #' Shiny modules
 #'
 #' Shiny's module feature lets you break complicated UI and server logic into
 #' smaller, self-contained pieces. Compared to large monolithic Shiny apps,
 #' modules are easier to reuse and easier to reason about. See the article at
-#' <http://shiny.rstudio.com/articles/modules.html> to learn more.
+#' <https://shiny.rstudio.com/articles/modules.html> to learn more.
 #'
 #' Starting in Shiny 1.5.0, we recommend using `moduleServer` instead of
 #' [`callModule()`], because the syntax is a little easier
@@ -55,7 +80,7 @@ createSessionProxy <- function(parentSession, ...) {
 #'   almost always be used).
 #'
 #' @return The return value, if any, from executing the module server function
-#' @seealso <http://shiny.rstudio.com/articles/modules.html>
+#' @seealso <https://shiny.rstudio.com/articles/modules.html>
 #'
 #' @examples
 #' # Define the UI for a module

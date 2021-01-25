@@ -50,9 +50,9 @@ session$setInputs(x=1, y=2)
 
 \item{\code{token}}{On a real \code{ShinySession}, used to identify this instance in URLs.}
 
-\item{\code{cache}}{The session cache MemoryCache.}
+\item{\code{cache}}{The session cache object.}
 
-\item{\code{appcache}}{The app cache MemoryCache.}
+\item{\code{appcache}}{The app cache object.}
 
 \item{\code{restoreContext}}{Part of bookmarking support in a real
 \code{ShinySession} but always \code{NULL} for a \code{MockShinySession}.}
@@ -62,6 +62,8 @@ user. Always \code{NULL} for a \code{MockShinySesion}.}
 
 \item{\code{user}}{The username of an authenticated user. Always \code{NULL} for a
 \code{MockShinySession}.}
+
+\item{\code{options}}{A list containing session-level shinyOptions.}
 }
 \if{html}{\out{</div>}}
 }

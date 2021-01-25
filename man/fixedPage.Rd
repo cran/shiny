@@ -5,7 +5,13 @@
 \alias{fixedRow}
 \title{Create a page with a fixed layout}
 \usage{
-fixedPage(..., title = NULL, responsive = NULL, theme = NULL)
+fixedPage(
+  ...,
+  title = NULL,
+  responsive = deprecated(),
+  theme = NULL,
+  lang = NULL
+)
 
 fixedRow(...)
 }
@@ -20,6 +26,10 @@ Bootstrap 3.}
 \item{theme}{Alternative Bootstrap stylesheet (normally a css file within the
 www directory). For example, to use the theme located at
 \code{www/bootstrap.css} you would use \code{theme = "bootstrap.css"}.}
+
+\item{lang}{ISO 639-1 language code for the HTML page, such as "en" or "ko".
+This will be used as the lang in the \code{<html>} tag, as in \code{<html lang="en">}.
+The default (NULL) results in an empty string.}
 }
 \value{
 A UI defintion that can be passed to the \link{shinyUI} function.
@@ -41,7 +51,7 @@ layout functions like \code{sidebarLayout}, rather, all layout must be done
 with \code{fixedRow} and \code{column}.
 }
 \note{
-See the \href{http://shiny.rstudio.com/articles/layout-guide.html}{ Shiny Application Layout Guide} for additional details on laying out fixed
+See the \href{https://shiny.rstudio.com/articles/layout-guide.html}{ Shiny Application Layout Guide} for additional details on laying out fixed
 pages.
 }
 \examples{

@@ -113,24 +113,6 @@ isWholeNum <- function(x, tol = .Machine$double.eps^0.5) {
   abs(x - round(x)) < tol
 }
 
-`%OR%` <- function(x, y) {
-  if (is.null(x) || isTRUE(is.na(x)))
-    y
-  else
-    x
-}
-
-`%AND%` <- function(x, y) {
-  if (!is.null(x) && !isTRUE(is.na(x)))
-    if (!is.null(y) && !isTRUE(is.na(y)))
-      return(y)
-  return(NULL)
-}
-
-`%.%` <- function(x, y) {
-  paste(x, y, sep='')
-}
-
 # Given a vector or list, drop all the NULL items in it
 dropNulls <- function(x) {
   x[!vapply(x, is.null, FUN.VALUE=logical(1))]
@@ -182,6 +164,10 @@ asNamed <- function(x) {
   x
 }
 
+empty_named_list <- function() {
+  list(a = 1)[0]
+}
+
 # Given two named vectors, join them together, and keep only the last element
 # with a given name in the resulting vector. If b has any elements with the same
 # name as elements in a, the element in a is dropped. Also, if there are any
@@ -219,6 +205,7 @@ sort_c <- function(x, ...) {
     x <- enc2utf8(x)
   sort(x, method = "radix", ...)
 }
+
 
 # Wrapper around list2env with a NULL check. In R <3.2.0, if an empty unnamed
 # list is passed to list2env(), it errors. But an empty named list is OK. For
@@ -427,7 +414,8 @@ makeFunction <- function(args = pairlist(), body, env = parent.frame()) {
 #' Convert an expression to a function
 #'
 #' This is to be called from another function, because it will attempt to get
-#' an unquoted expression from two calls back.
+#' an unquoted expression from two calls back. Note: as of Shiny 1.6.0, it is
+#' recommended to use [quoToFunction()] instead.
 #'
 #' If expr is a quoted expression, then this just converts it to a function.
 #' If expr is a function, then this simply returns expr (and prints a
@@ -485,7 +473,8 @@ exprToFunction <- function(expr, env=parent.frame(), quoted=FALSE) {
 #' Install an expression as a function
 #'
 #' Installs an expression in the given environment as a function, and registers
-#' debug hooks so that breakpoints may be set in the function.
+#' debug hooks so that breakpoints may be set in the function. Note: as of
+#' Shiny 1.6.0, it is recommended to use [quoToFunction()] instead.
 #'
 #' This function can replace `exprToFunction` as follows: we may use
 #' `func <- exprToFunction(expr)` if we do not want the debug hooks, or
@@ -529,6 +518,48 @@ installExprFunction <- function(expr, name, eval.env = parent.frame(2),
     registerDebugHook(name, assign.env, label)
   }
   assign(name, func, envir = assign.env)
+}
+
+#' Convert a quosure to a function for a Shiny render function
+#'
+#' This takes a quosure and label, and wraps them into a function that should be
+#' passed to [createRenderFunction()] or [markRenderFunction()].
+#'
+#' This function was added in Shiny 1.6.0. Previously, it was recommended to use
+#' [installExprFunction()] or [exprToFunction()] in render functions, but now we
+#' recommend using [quoToFunction()], because it does not require `env` and
+#' `quoted` arguments -- that information is captured by quosures provided by
+#' \pkg{rlang}.
+#'
+#' @param q A quosure.
+#' @inheritParams installExprFunction
+#' @seealso [createRenderFunction()] for example usage.
+#'
+#' @export
+quoToFunction <- function(q, label, ..stacktraceon = FALSE) {
+  q <- as_quosure(q)
+  # Use new_function() instead of as_function(), because as_function() adds an
+  # extra parent environment. (This may not actually be a problem, though.)
+  func <- new_function(NULL, get_expr(q), get_env(q))
+  wrapFunctionLabel(func, label, ..stacktraceon = ..stacktraceon)
+}
+
+
+# Utility function for creating a debugging label, given an expression.
+# `expr` is a quoted expression.
+# `function_name` is the name of the calling function.
+# `label` is an optional user-provided label. If NULL, it will be inferred.
+exprToLabel <- function(expr, function_name, label = NULL) {
+  srcref <- attr(expr, "srcref", exact = TRUE)
+  if (is.null(label)) {
+    label <- rexprSrcrefToLabel(
+      srcref[[1]],
+      sprintf('%s(%s)', function_name, paste(deparse(expr), collapse = '\n'))
+    )
+  }
+  if (length(srcref) >= 2) attr(label, "srcref") <- srcref[[2]]
+  attr(label, "srcfile") <- srcFileOfRef(srcref[[1]])
+  label
 }
 
 #' Parse a GET query string from a URL
@@ -631,37 +662,6 @@ shinyCallingHandlers <- function(expr) {
   )
 }
 
-#' Print message for deprecated functions in Shiny
-#'
-#' To disable these messages, use `options(shiny.deprecation.messages=FALSE)`.
-#'
-#' @param new Name of replacement function.
-#' @param msg Message to print. If used, this will override the default message.
-#' @param old Name of deprecated function.
-#' @param version The last version of Shiny before the item was deprecated.
-#' @keywords internal
-shinyDeprecated <- function(new=NULL, msg=NULL,
-                            old=as.character(sys.call(sys.parent()))[1L],
-                            version = NULL) {
-
-  if (getOption("shiny.deprecation.messages") %OR% TRUE == FALSE)
-    return(invisible())
-
-  if (is.null(msg)) {
-    msg <- paste(old, "is deprecated.")
-    if (!is.null(new)) {
-      msg <- paste(msg, "Please use", new, "instead.",
-        "To disable this message, run options(shiny.deprecation.messages=FALSE)")
-    }
-  }
-
-  if (!is.null(version)) {
-    msg <- paste0(msg, " (Last used in version ", version, ")")
-  }
-
-  # Similar to .Deprecated(), but print a message instead of warning
-  message(msg)
-}
 
 #' Register a function with the debugger (if one is active).
 #'
@@ -1503,7 +1503,7 @@ checkEncoding <- function(file) {
   if (identical(charToRaw(readChar(file, 3L, TRUE)), charToRaw('\UFEFF'))) {
     warning('You should not include the Byte Order Mark (BOM) in ', file, '. ',
             'Please re-save it in UTF-8 without BOM. See ',
-            'http://shiny.rstudio.com/articles/unicode.html for more info.')
+            'https://shiny.rstudio.com/articles/unicode.html for more info.')
     return('UTF-8-BOM')
   }
   x <- readChar(file, size, useBytes = TRUE)
@@ -1587,15 +1587,19 @@ URLencode <- function(value, reserved = FALSE) {
   if (reserved) encodeURIComponent(value) else encodeURI(value)
 }
 
-# Make user-supplied dates are either NULL or can be coerced
-# to a yyyy-mm-dd formatted string. If a date is specified, this
-# function returns a string for consistency across locales.
-# Also, `as.Date()` is used to coerce strings to date objects
-# so that strings like "2016-08-9" are expanded to "2016-08-09"
+# Make sure user-supplied dates are either NULL or can be coerced to a
+# yyyy-mm-dd formatted string. If a date is specified, this function returns a
+# string for consistency across locales. Also, `as.Date()` is used to coerce
+# strings to date objects so that strings like "2016-08-9" are expanded to
+# "2016-08-09". If any of the values result in error or NA, then the input
+# `date` is returned unchanged.
 dateYMD <- function(date = NULL, argName = "value") {
   if (!length(date)) return(NULL)
-  if (length(date) > 1) warning("Expected `", argName, "` to be of length 1.")
-  tryCatch(date <- format(as.Date(date), "%Y-%m-%d"),
+  tryCatch({
+      res <- format(as.Date(date), "%Y-%m-%d")
+      if (any(is.na(res))) stop()
+      date <- res
+    },
     error = function(e) {
       warning(
         "Couldn't coerce the `", argName,
@@ -1618,18 +1622,17 @@ wrapFunctionLabel <- function(func, name, ..stacktraceon = FALSE) {
   assign(name, func, environment())
   registerDebugHook(name, environment(), name)
 
-  relabelWrapper <- eval(substitute(
-    function(...) {
-      # This `f` gets renamed to the value of `name`. Note that it may not
-      # print as the new name, because of source refs stored in the function.
-      if (..stacktraceon)
-        ..stacktraceon..(f(...))
-      else
-        f(...)
-    },
-    list(f = as.name(name))
-  ))
+  if (..stacktraceon) {
+    # We need to wrap the `...` in `!!quote(...)` so that R CMD check won't
+    # complain about "... may be used in an incorrect context"
+    body <- expr({ ..stacktraceon..((!!name)(!!quote(...))) })
+  } else {
+    body <- expr({ (!!name)(!!quote(...)) })
+  }
+  relabelWrapper <- new_function(pairlist2(... =), body, environment())
 
+  # Preserve the original function that was passed in; is used for caching.
+  attr(relabelWrapper, "wrappedFunc") <- func
   relabelWrapper
 }
 
@@ -1689,19 +1692,23 @@ hybrid_chain <- function(expr, ..., catch = NULL, finally = NULL,
           if (promises::is.promising(result$value)) {
             # Purposefully NOT including domain (nor replace), as we're already in
             # the domain at this point
-            p <- promise_chain(setVisible(result), ..., catch = catch, finally = finally)
+            p <- promise_chain(valueWithVisible(result), ..., catch = catch, finally = finally)
             runFinally <- FALSE
             p
           } else {
-            result <- Reduce(function(v, func) {
-              if (".visible" %in% names(formals(func))) {
-                withVisible(func(v$value, .visible = v$visible))
-              } else {
-                withVisible(func(v$value))
-              }
-            }, list(...), result)
+            result <- Reduce(
+              function(v, func) {
+                if (v$visible) {
+                  withVisible(func(v$value))
+                } else {
+                  withVisible(func(invisible(v$value)))
+                }
+              },
+              list(...),
+              result
+            )
 
-            setVisible(result)
+            valueWithVisible(result)
           }
         })
       },
@@ -1722,23 +1729,12 @@ hybrid_chain <- function(expr, ..., catch = NULL, finally = NULL,
   }
 }
 
-# Returns `value` with either `invisible()` applied or not, depending on the
-# value of `visible`.
-#
-# If the `visible` is missing, then `value` should be a list as returned from
-# `withVisible()`, and that visibility will be applied.
-setVisible <- function(value, visible) {
-  if (missing(visible)) {
-    visible <- value$visible
-    value <- value$value
-  }
-
-  if (!visible) {
-    invisible(value)
-  } else {
-    (value)
-  }
+# Given a list with items named `value` and `visible`, return `x$value` either
+# visibly, or invisibly, depending on the value of `x$visible`.
+valueWithVisible <- function(x) {
+  if (x$visible) x$value else invisible(x$value)
 }
+
 
 createVarPromiseDomain <- function(env, name, value) {
   force(env)
@@ -1783,7 +1779,10 @@ getSliderType <- function(min, max, value) {
     else                            "number"
   }))
   if (length(type) > 1) {
-    stop("Type mismatch for `min`, `max`, and `value`. Each must be Date, POSIXt, or number.")
+    rlang::abort(c(
+      "Type mismatch for `min`, `max`, and `value`.",
+      "All values must either be numeric, Date, or POSIXt."
+    ))
   }
   type[[1]]
 }
@@ -1893,3 +1892,15 @@ is_available <- function(package, version = NULL) {
   }
   installed && isTRUE(utils::packageVersion(package) >= version)
 }
+
+
+# cached version of utils::packageVersion("shiny")
+shinyPackageVersion <- local({
+  version <- NULL
+  function() {
+    if (is.null(version)) {
+      version <<- utils::packageVersion("shiny")
+    }
+    version
+  }
+})

@@ -76,8 +76,10 @@ Progress <- R6Class(
       min = 0, max = 1,
       style = getShinyOption("progress.style", default = "notification"))
     {
+      if (is.null(session))
+        rlang::abort("Can only use Progress$new() inside a Shiny app")
       if (is.null(session$progressStack))
-        stop("'session' is not a ShinySession object.")
+        rlang::abort("`session` is not a ShinySession object.")
 
       private$session <- session
       private$id <- createUniqueId(8)
@@ -204,7 +206,7 @@ Progress <- R6Class(
 #'   the server function. The default is to automatically find the session by
 #'   using the current reactive domain.
 #' @param expr The work to be done. This expression should contain calls to
-#'   `setProgress`.
+#'   [setProgress()] or [incProgress()].
 #' @param min The value that represents the starting point of the progress bar.
 #'   Must be less tham `max`. Default is 0.
 #' @param max The value that represents the end of the progress bar. Must be
@@ -227,6 +229,7 @@ Progress <- R6Class(
 #' @param value Single-element numeric vector; the value at which to set the
 #'   progress bar, relative to `min` and `max`.
 #'
+#' @return The result of `expr`.
 #' @examples
 #' ## Only run examples in interactive R sessions
 #' if (interactive()) {

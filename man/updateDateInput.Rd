@@ -5,7 +5,7 @@
 \title{Change the value of a date input on the client}
 \usage{
 updateDateInput(
-  session,
+  session = getDefaultReactiveDomain(),
   inputId,
   label = NULL,
   value = NULL,
@@ -15,14 +15,15 @@ updateDateInput(
 }
 \arguments{
 \item{session}{The \code{session} object passed to function given to
-\code{shinyServer}.}
+\code{shinyServer}. Default is \code{getDefaultReactiveDomain()}.}
 
 \item{inputId}{The id of the input object.}
 
 \item{label}{The label to set for the input object.}
 
-\item{value}{The desired date value. Either a Date object, or a string in
-\code{yyyy-mm-dd} format. Supply \code{NA} to clear the date.}
+\item{value}{The starting date. Either a Date object, or a string in
+\code{yyyy-mm-dd} format. If NULL (the default), will use the current date
+in the client's time zone.}
 
 \item{min}{The minimum allowed date. Either a Date object, or a string in
 \code{yyyy-mm-dd} format.}

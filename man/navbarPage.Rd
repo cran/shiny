@@ -15,11 +15,12 @@ navbarPage(
   footer = NULL,
   inverse = FALSE,
   collapsible = FALSE,
-  collapsable,
+  collapsable = deprecated(),
   fluid = TRUE,
-  responsive = NULL,
+  responsive = deprecated(),
   theme = NULL,
-  windowTitle = title
+  windowTitle = title,
+  lang = NULL
 )
 
 navbarMenu(title, ..., menuName = title, icon = NULL)
@@ -76,6 +77,10 @@ www directory). For example, to use the theme located at
 
 \item{windowTitle}{The title that should be displayed by the browser window.
 Useful if \code{title} is not a string.}
+
+\item{lang}{ISO 639-1 language code for the HTML page, such as "en" or "ko".
+This will be used as the lang in the \code{<html>} tag, as in \code{<html lang="en">}.
+The default (NULL) results in an empty string.}
 
 \item{menuName}{A name that identifies this \code{navbarMenu}. This
 is needed if you want to insert/remove or show/hide an entire

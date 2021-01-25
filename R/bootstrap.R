@@ -4,7 +4,7 @@ NULL
 #' Create a Bootstrap page
 #'
 #' Create a Shiny UI page that loads the CSS and JavaScript for
-#' [Bootstrap](http://getbootstrap.com/), and has no content in the page
+#' [Bootstrap](https://getbootstrap.com/), and has no content in the page
 #' body (other than what you provide).
 #'
 #' This function is primarily intended for users who are proficient in HTML/CSS,
@@ -16,8 +16,15 @@ NULL
 #' @param title The browser window title (defaults to the host URL of the page)
 #' @param responsive This option is deprecated; it is no longer optional with
 #'   Bootstrap 3.
-#' @param theme Alternative Bootstrap stylesheet (normally a css file within the
-#'   www directory, e.g. `www/bootstrap.css`)
+#' @param theme One of the following:
+#'   * `NULL` (the default), which implies a "stock" build of Bootstrap 3.
+#'   * A [bslib::bs_theme()] object. This can be used to replace a stock
+#'   build of Bootstrap 3 with a customized version of Bootstrap 3 or higher.
+#'   * A character string pointing to an alternative Bootstrap stylesheet
+#'   (normally a css file within the www directory, e.g. `www/bootstrap.css`).
+#' @param lang ISO 639-1 language code for the HTML page, such as "en" or "ko".
+#'   This will be used as the lang in the \code{<html>} tag, as in \code{<html lang="en">}.
+#'   The default (NULL) results in an empty string.
 #'
 #' @return A UI defintion that can be passed to the [shinyUI] function.
 #'
@@ -26,55 +33,203 @@ NULL
 #'
 #' @seealso [fluidPage()], [fixedPage()]
 #' @export
-bootstrapPage <- function(..., title = NULL, responsive = NULL, theme = NULL) {
+bootstrapPage <- function(..., title = NULL, responsive = deprecated(), theme = NULL, lang = NULL) {
 
-  if (!is.null(responsive)) {
-    shinyDeprecated("The 'responsive' argument is no longer used with Bootstrap 3.")
+  if (lifecycle::is_present(responsive)) {
+    shinyDeprecated(
+      "0.10.2.2", "bootstrapPage(responsive=)",
+      details = "The 'responsive' argument is no longer used with the latest version of Bootstrap."
+    )
   }
 
-  attachDependencies(
-    tagList(
-      if (!is.null(title)) tags$head(tags$title(title)),
-      if (!is.null(theme)) {
-        tags$head(tags$link(rel="stylesheet", type="text/css", href = theme))
-      },
-
-      # remainder of tags passed to the function
-      list(...)
-    ),
-    bootstrapLib()
+  args <- list(
+    if (!is.null(title)) tags$head(tags$title(title)),
+    if (is.character(theme)) {
+      if (length(theme) > 1) stop("`theme` must point to a single CSS file, not multiple files.")
+      tags$head(tags$link(rel="stylesheet", type="text/css", href=theme))
+    },
+    # remainder of tags passed to the function
+    list(...)
   )
+
+  # If theme is a bslib::bs_theme() object, bootstrapLib() needs to come first
+  # (so other tags, when rendered via tagFunction(), know about the relevant
+  # theme). However, if theme is anything else, we intentionally avoid changing
+  # the tagList() contents to avoid breaking user code that makes assumptions
+  # about the return value https://github.com/rstudio/shiny/issues/3235
+  if (is_bs_theme(theme)) {
+    args <- c(bootstrapLib(theme), args)
+    ui <- do.call(tagList, args)
+  } else {
+    ui <- do.call(tagList, args)
+    ui <- attachDependencies(ui, bootstrapLib())
+  }
+
+  setLang(ui, lang)
+}
+
+setLang <- function(ui, lang) {
+  # Add lang attribute to be passed to renderPage function
+  attr(ui, "lang") <- lang
+  ui
+}
+getLang <- function(ui) {
+  # Check if ui has lang attribute; otherwise, NULL
+  attr(ui, "lang", exact = TRUE)
 }
 
 #' Bootstrap libraries
 #'
-#' This function returns a set of web dependencies necessary for using Bootstrap
+#' This function defines a set of web dependencies necessary for using Bootstrap
 #' components in a web page.
 #'
-#' It isn't necessary to call this function if you use
-#' [bootstrapPage()] or others which use `bootstrapPage`, such
-#' [basicPage()], [fluidPage()], [fillPage()],
-#' [pageWithSidebar()], and [navbarPage()], because they
-#' already include the Bootstrap web dependencies.
+#' It isn't necessary to call this function if you use [bootstrapPage()] or
+#' others which use `bootstrapPage`, such [fluidPage()], [navbarPage()],
+#' [fillPage()], etc, because they already include the Bootstrap web dependencies.
 #'
 #' @inheritParams bootstrapPage
 #' @export
 bootstrapLib <- function(theme = NULL) {
-  htmlDependency("bootstrap", "3.4.1",
+  tagFunction(function() {
+    # If we're not compiling Bootstrap Sass (from bslib), return the
+    # static Bootstrap build.
+    if (!is_bs_theme(theme)) {
+      # We'll enter here if `theme` is the path to a .css file, like that
+      # provided by `shinythemes::shinytheme("darkly")`.
+      return(bootstrapDependency(theme))
+    }
+
+    # Make bootstrap Sass available so other tagFunction()s (e.g.,
+    # sliderInput() et al) can resolve their HTML dependencies at render time
+    # using getCurrentTheme(). Note that we're making an implicit assumption
+    # that this tagFunction() executes *before* all other tagFunction()s; but
+    # that should be fine considering that, DOM tree order is preorder,
+    # depth-first traversal, and at least in the bootstrapPage(theme) case, we
+    # have control over the relative ordering.
+    # https://dom.spec.whatwg.org/#concept-tree
+    # https://stackoverflow.com/a/16113998/1583084
+    #
+    # Note also that since this is shinyOptions() (and not options()), the
+    # option is automatically reset when the app (or session) exits
+    if (isRunning()) {
+      setCurrentTheme(theme)
+      registerThemeDependency(bs_theme_deps)
+
+    } else {
+      # Technically, this a potential issue (someone trying to execute/render
+      # bootstrapLib outside of a Shiny app), but it seems that, in that case,
+      # you likely have other problems, since sliderInput() et al. already assume
+      # that Shiny is the one doing the rendering
+      #warning(
+      #  "It appears `shiny::bootstrapLib()` was rendered outside of an Shiny ",
+      #  "application context, likely by calling `as.tags()`, `as.character()`, ",
+      #  "or `print()` directly on `bootstrapLib()` or UI components that may ",
+      #  "depend on it (e.g., `fluidPage()`, etc). For 'themable' UI components ",
+      #  "(e.g., `sliderInput()`, `selectInput()`, `dateInput()`, etc) to style ",
+      #  "themselves based on the Bootstrap theme, make sure `bootstrapLib()` is ",
+      #  "provided directly to the UI and that the UI is provided direction to ",
+      #  "`shinyApp()` (or `runApp()`)", call. = FALSE
+      #)
+    }
+
+    bslib::bs_theme_dependencies(theme)
+  })
+}
+
+# This is defined outside of bootstrapLib() because registerThemeDependency()
+# wants a non-anonymous function with a single argument
+bs_theme_deps <- function(theme) {
+  bslib::bs_theme_dependencies(theme)
+}
+
+is_bs_theme <- function(x) {
+  is_available("bslib", "0.2.0.9000") &&
+    bslib::is_bs_theme(x)
+}
+
+#' Obtain Shiny's Bootstrap Sass theme
+#'
+#' Intended for use by Shiny developers to create Shiny bindings with intelligent
+#' styling based on the [bootstrapLib()]'s `theme` value.
+#'
+#' @return If called at render-time (i.e., inside a [htmltools::tagFunction()]),
+#' and [bootstrapLib()]'s `theme` has been set to a [bslib::bs_theme()]
+#' object, then this returns the `theme`. Otherwise, this returns `NULL`.
+#' @seealso [getCurrentOutputInfo()], [bootstrapLib()], [htmltools::tagFunction()]
+#'
+#' @keywords internal
+#' @export
+getCurrentTheme <- function() {
+  getShinyOption("bootstrapTheme", default = NULL)
+}
+
+setCurrentTheme <- function(theme) {
+  shinyOptions(bootstrapTheme = theme)
+}
+
+#' Register a theme dependency
+#'
+#' This function registers a function that returns an [htmlDependency()] or list
+#' of such objects. If `session$setCurrentTheme()` is called, the function will
+#' be re-executed, and the resulting html dependency will be sent to the client.
+#'
+#' Note that `func` should **not** be an anonymous function, or a function which
+#' is defined within the calling function. This is so that,
+#' `registerThemeDependency()` is called multiple times with the function, it
+#' tries to deduplicate them
+#'
+#' @param func A function that takes one argument, `theme` (which is a
+#'   [sass::sass_layer()] object), and returns an htmlDependency object, or list
+#'   of them.
+#'
+#' @export
+#' @keywords internal
+registerThemeDependency <- function(func) {
+  func_expr <- substitute(func)
+  if (is.call(func_expr) && identical(func_expr[[1]], as.symbol("function"))) {
+    warning("`func` should not be an anonymous function. ",
+      "It should be declared outside of the function that calls registerThemeDependency(); ",
+      "otherwise it will not be deduplicated by Shiny and multiple copies of the ",
+      "resulting htmlDependency may be computed and sent to the client.")
+  }
+  if (!is.function(func) || length(formals(func)) != 1) {
+    stop("`func` must be a function with one argument (the current theme)")
+  }
+
+  # Note that this will automatically scope to the app or session level,
+  # depending on if this is called from within a session or not.
+  funcs <- getShinyOption("themeDependencyFuncs", default = list())
+
+  # Don't add func if it's already present.
+  have_func <- any(vapply(funcs, identical, logical(1), func))
+  if (!have_func) {
+    funcs[[length(funcs) + 1]] <- func
+  }
+
+  shinyOptions("themeDependencyFuncs" = funcs)
+}
+
+bootstrapDependency <- function(theme) {
+  htmlDependency(
+    "bootstrap", "3.4.1",
     c(
       href = "shared/bootstrap",
       file = system.file("www/shared/bootstrap", package = "shiny")
     ),
     script = c(
       "js/bootstrap.min.js",
-      # These shims are necessary for IE 8 compatibility
-      "shim/html5shiv.min.js",
-      "shim/respond.min.js"
+      # Safely adding accessibility plugin for screen readers and keyboard users; no break for sighted aspects (see https://github.com/paypal/bootstrap-accessibility-plugin)
+      "accessibility/js/bootstrap-accessibility.min.js"
     ),
-    stylesheet = if (is.null(theme)) "css/bootstrap.min.css",
+    stylesheet = c(
+      theme %||% "css/bootstrap.min.css",
+      # Safely adding accessibility plugin for screen readers and keyboard users; no break for sighted aspects (see https://github.com/paypal/bootstrap-accessibility-plugin)
+      "accessibility/css/bootstrap-accessibility.min.css"
+    ),
     meta = list(viewport = "width=device-width, initial-scale=1")
   )
 }
+
 
 #' @rdname bootstrapPage
 #' @export
@@ -129,6 +284,7 @@ basicPage <- function(...) {
 #'   shown in the document).
 #' @param bootstrap If `TRUE`, load the Bootstrap CSS library.
 #' @param theme URL to alternative Bootstrap stylesheet.
+#' @inheritParams bootstrapPage
 #'
 #' @family layout functions
 #'
@@ -156,7 +312,7 @@ basicPage <- function(...) {
 #' )
 #' @export
 fillPage <- function(..., padding = 0, title = NULL, bootstrap = TRUE,
-  theme = NULL) {
+  theme = NULL, lang = NULL) {
 
   fillCSS <- tags$head(tags$style(type = "text/css",
     "html, body { width: 100%; height: 100%; overflow: hidden; }",
@@ -164,14 +320,18 @@ fillPage <- function(..., padding = 0, title = NULL, bootstrap = TRUE,
   ))
 
   if (isTRUE(bootstrap)) {
-    bootstrapPage(title = title, theme = theme, fillCSS, ...)
+    ui <- bootstrapPage(title = title, theme = theme, fillCSS, lang = lang, ...)
   } else {
-    tagList(
+    ui <- tagList(
       fillCSS,
       if (!is.null(title)) tags$head(tags$title(title)),
       ...
     )
+
+    ui <- setLang(ui, lang)
   }
+
+  return(ui)
 }
 
 collapseSizes <- function(padding) {
@@ -223,6 +383,7 @@ collapseSizes <- function(padding) {
 #'   `www/bootstrap.css` you would use `theme = "bootstrap.css"`.
 #' @param windowTitle The title that should be displayed by the browser window.
 #'   Useful if `title` is not a string.
+#' @inheritParams bootstrapPage
 #' @param icon Optional icon to appear on a `navbarMenu` tab.
 #'
 #' @return A UI defintion that can be passed to the [shinyUI] function.
@@ -263,14 +424,15 @@ navbarPage <- function(title,
                        footer = NULL,
                        inverse = FALSE,
                        collapsible = FALSE,
-                       collapsable,
+                       collapsable = deprecated(),
                        fluid = TRUE,
-                       responsive = NULL,
+                       responsive = deprecated(),
                        theme = NULL,
-                       windowTitle = title) {
+                       windowTitle = title,
+                       lang = NULL) {
 
-  if (!missing(collapsable)) {
-    shinyDeprecated("`collapsable` is deprecated; use `collapsible` instead.")
+  if (lifecycle::is_present(collapsable)) {
+    shinyDeprecated("0.10.2.2", "navbarPage(collapsable =)", "navbarPage(collapsible =)")
     collapsible <- collapsable
   }
 
@@ -338,6 +500,7 @@ navbarPage <- function(title,
     title = windowTitle,
     responsive = responsive,
     theme = theme,
+    lang = lang,
     tags$nav(class=navbarClass, role="navigation", containerDiv),
     contentDiv
   )
@@ -583,11 +746,12 @@ tabsetPanel <- function(...,
                         id = NULL,
                         selected = NULL,
                         type = c("tabs", "pills", "hidden"),
-                        position = NULL) {
-  if (!is.null(position)) {
-    shinyDeprecated(msg = paste("tabsetPanel: argument 'position' is deprecated;",
-                                "it has been discontinued in Bootstrap 3."),
-                    version = "0.10.2.2")
+                        position = deprecated()) {
+  if (lifecycle::is_present(position)) {
+    shinyDeprecated(
+      "0.10.2.2", "bootstrapPage(position =)",
+      details = "The 'position' argument is no longer used with the latest version of Bootstrap."
+    )
   }
 
   if (!is.null(id))
@@ -718,7 +882,7 @@ findAndMarkSelectedTab <- function(tabs, selected, foundSelected) {
         foundSelected <<- TRUE
         div <- markTabAsSelected(div)
       } else {
-        tabValue <- div$attribs$`data-value` %OR% div$attribs$title
+        tabValue <- div$attribs$`data-value` %||% div$attribs$title
         if (identical(selected, tabValue)) {
           foundSelected <<- TRUE
           div <- markTabAsSelected(div)
@@ -845,15 +1009,15 @@ buildTabItem <- function(index, tabsetId, foundSelected, tabs = NULL,
 #' Render a reactive output variable as text within an application page.
 #' `textOutput()` is usually paired with [renderText()] and puts regular text
 #' in `<div>` or `<span>`; `verbatimTextOutput()` is usually paired with
-#' [renderPrint()] and provudes fixed-width text in a `<pre>`.
+#' [renderPrint()] and provides fixed-width text in a `<pre>`.
 #'
-#' In both funtions, text is HTML-escaped prior to rendering.
+#' In both functions, text is HTML-escaped prior to rendering.
 #'
 #' @param outputId output variable to read the value from
 #' @param container a function to generate an HTML element to contain the text
 #' @param inline use an inline (`span()`) or block container (`div()`)
 #'   for the output
-#' @return A output element for use in UI.
+#' @return An output element for use in UI.
 #' @examples
 #' ## Only run this example in interactive R sessions
 #' if (interactive()) {
@@ -876,14 +1040,14 @@ textOutput <- function(outputId, container = if (inline) span else div, inline =
 
 #' @param placeholder if the output is empty or `NULL`, should an empty
 #'   rectangle be displayed to serve as a placeholder? (does not affect
-#'   behavior when the the output in nonempty)
+#'   behavior when the output is nonempty)
 #' @export
 #' @rdname textOutput
 verbatimTextOutput <- function(outputId, placeholder = FALSE) {
   pre(id = outputId,
-      class = paste(c("shiny-text-output", if (!placeholder) "noplaceholder"),
-                    collapse = " ")
-      )
+    class = "shiny-text-output",
+    class = if (!placeholder) "noplaceholder"
+  )
 }
 
 
@@ -895,7 +1059,9 @@ imageOutput <- function(outputId, width = "100%", height="400px",
                         inline = FALSE) {
 
   style <- if (!inline) {
-    paste("width:", validateCssUnit(width), ";", "height:", validateCssUnit(height))
+    # Using `css()` here instead of paste/sprintf so that NULL values will
+    # result in the property being dropped altogether
+    css(width = validateCssUnit(width), height = validateCssUnit(height))
   }
 
 
@@ -1309,6 +1475,7 @@ uiOutput <- htmlOutput
 #'   is assigned to.
 #' @param label The label that should appear on the button.
 #' @param class Additional CSS classes to apply to the tag, if any.
+#' @param icon An [icon()] to appear on the button. Default is `icon("download")`.
 #' @param ... Other arguments to pass to the container tag function.
 #'
 #' @examples
@@ -1339,13 +1506,15 @@ uiOutput <- htmlOutput
 #' @export
 downloadButton <- function(outputId,
                            label="Download",
-                           class=NULL, ...) {
+                           class=NULL,
+                           ...,
+                           icon = shiny::icon("download")) {
   aTag <- tags$a(id=outputId,
                  class=paste('btn btn-default shiny-download-link', class),
                  href='',
                  target='_blank',
                  download=NA,
-                 icon("download"),
+                 validateIcon(icon),
                  label, ...)
 }
 
@@ -1370,20 +1539,21 @@ downloadLink <- function(outputId, label="Download", class=NULL, ...) {
 #' @param name Name of icon. Icons are drawn from the
 #'   [Font Awesome Free](https://fontawesome.com/) (currently icons from
 #'   the v5.13.0 set are supported with the v4 naming convention) and
-#'   [Glyphicons](http://getbootstrap.com/components/#glyphicons)
+#'   [Glyphicons](https://getbootstrap.com/components/#glyphicons)
 #'   libraries. Note that the "fa-" and "glyphicon-" prefixes should not be used
 #'   in icon names (i.e. the "fa-calendar" icon should be referred to as
 #'   "calendar")
 #' @param class Additional classes to customize the style of the icon (see the
-#'   [usage examples](http://fontawesome.io/examples/) for details on
+#'   [usage examples](https://fontawesome.com/how-to-use) for details on
 #'   supported styles).
 #' @param lib Icon library to use ("font-awesome" or "glyphicon")
+#' @param ... Arguments passed to the `<i>` tag of [htmltools::tags]
 #'
 #' @return An icon element
 #'
 #' @seealso For lists of available icons, see
-#'   [http://fontawesome.io/icons/](http://fontawesome.io/icons/) and
-#'   [http://getbootstrap.com/components/#glyphicons](http://getbootstrap.com/components/#glyphicons).
+#'   [https://fontawesome.com/icons](https://fontawesome.com/icons) and
+#'   [https://getbootstrap.com/components/#glyphicons](https://getbootstrap.com/components/#glyphicons).
 #'
 #'
 #' @examples
@@ -1396,7 +1566,7 @@ downloadLink <- function(outputId, label="Download", class=NULL, ...) {
 #'   tabPanel("Table", icon = icon("table"))
 #' )
 #' @export
-icon <- function(name, class = NULL, lib = "font-awesome") {
+icon <- function(name, class = NULL, lib = "font-awesome", ...) {
   prefixes <- list(
     "font-awesome" = "fa",
     "glyphicon" = "glyphicon"
@@ -1422,7 +1592,7 @@ icon <- function(name, class = NULL, lib = "font-awesome") {
   if (!is.null(class))
     iconClass <- paste(iconClass, class)
 
-  iconTag <- tags$i(class = iconClass)
+  iconTag <- tags$i(class = iconClass, role = "presentation", `aria-label` = paste(name, "icon"), ...)
 
   # font-awesome needs an additional dependency (glyphicon is in bootstrap)
   if (lib == "font-awesome") {

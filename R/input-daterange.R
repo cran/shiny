@@ -92,7 +92,7 @@ dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
   attachDependencies(
     div(id = inputId,
       class = "shiny-date-range-input form-group shiny-input-container",
-      style = if (!is.null(width)) paste0("width: ", validateCssUnit(width), ";"),
+      style = css(width = validateCssUnit(width)),
 
       shinyInputLabel(inputId, label),
       # input-daterange class is needed for dropdown behavior
@@ -100,6 +100,10 @@ dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
         tags$input(
           class = "form-control",
           type = "text",
+          # `aria-labelledby` attribute is required for accessibility to avoid doubled labels (#2951).
+          `aria-labelledby` = paste0(inputId, "-label"),
+          # title attribute is announced for screen readers for date format.
+          title = paste("Date format:", format),
           `data-date-language` = language,
           `data-date-week-start` = weekstart,
           `data-date-format` = format,
@@ -118,6 +122,10 @@ dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
         tags$input(
           class = "form-control",
           type = "text",
+          # `aria-labelledby` attribute is required for accessibility to avoid doubled labels (#2951).
+          `aria-labelledby` = paste0(inputId, "-label"),
+          # title attribute is announced for screen readers for date format.
+          title = paste("Date format:", format),
           `data-date-language` = language,
           `data-date-week-start` = weekstart,
           `data-date-format` = format,
@@ -129,6 +137,6 @@ dateRangeInput <- function(inputId, label, start = NULL, end = NULL,
         )
       )
     ),
-    datePickerDependency
+    datePickerDependency()
   )
 }
