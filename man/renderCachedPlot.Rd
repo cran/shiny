@@ -40,12 +40,14 @@ information on the default sizing policy.}
 \item{...}{Arguments to be passed through to \code{\link[grDevices:png]{grDevices::png()}}.
 These can be used to set the width, height, background color, etc.}
 
-\item{alt}{Alternate text for the HTML \verb{<img>} tag
-if it cannot be displayed or viewed (i.e., the user uses a screen reader).
-In addition to a character string, the value may be a reactive expression
-(or a function referencing reactive values) that returns a character string.
-NULL or "" is not recommended because those should be limited to decorative images
-(the default is "Plot object").}
+\item{alt}{Alternate text for the HTML \verb{<img>} tag if it cannot be displayed
+or viewed (i.e., the user uses a screen reader). In addition to a character
+string, the value may be a reactive expression (or a function referencing
+reactive values) that returns a character string. If the value is \code{NA} (the
+default), then \code{ggplot2::get_alt_text()} is used to extract alt text from
+ggplot objects; for other plots, \code{NA} results in alt text of "Plot object".
+\code{NULL} or \code{""} is not recommended because those should be limited to
+decorative images.}
 
 \item{outputArgs}{A list of arguments to be passed through to the implicit
 call to \code{\link[=plotOutput]{plotOutput()}} when \code{renderPlot} is used in an
@@ -65,7 +67,7 @@ take reactive dependencies. It is re-executed only when the cache key
 changes.
 
 \code{cacheKeyExpr} is an expression which, when evaluated, returns an object
-which will be serialized and hashed using the \code{\link[digest:digest]{digest::digest()}}
+which will be serialized and hashed using the \code{\link[rlang:hash]{rlang::hash()}}
 function to generate a string that will be used as a cache key. This key is
 used to identify the contents of the plot: if the cache key is the same as a
 previous time, it assumes that the plot is the same and can be retrieved from
@@ -89,7 +91,7 @@ extracting out the important parts of the objects, and/or by converting them
 to normal R objects before returning them. Your expression could even
 serialize and hash that information in an efficient way and return a string,
 which will in turn be hashed (very quickly) by the
-\code{\link[digest:digest]{digest::digest()}} function.
+\code{\link[rlang:hash]{rlang::hash()}} function.
 
 Internally, the result from \code{cacheKeyExpr} is combined with the name of
 the output (if you assign it to \code{output$plot1}, it will be combined
@@ -217,7 +219,7 @@ shinyOptions(cache = cachem::cache_mem(max_size = 20e6, max_age = 3600))
 # At the top of app.R, this set the application-scoped cache to be a disk
 # cache that can be shared among multiple concurrent R processes, and is
 # deleted when the system reboots.
-shinyOptions(cache = cachem::cache_disk(file.path(dirname(tempdir()), "myapp-cache"))
+shinyOptions(cache = cachem::cache_disk(file.path(dirname(tempdir()), "myapp-cache")))
 
 # At the top of app.R, this set the application-scoped cache to be a disk
 # cache that can be shared among multiple concurrent R processes, and

@@ -1,10 +1,12 @@
 #' Table Output
 #'
-#' Creates a reactive table that is suitable for assigning to an `output`
-#' slot.
+#' @description
+#' The `tableOuptut()`/`renderTable()` pair creates a reactive table that is
+#' suitable for display small matrices and data frames. The columns are
+#' formatted with [xtable::xtable()].
 #'
-#' The corresponding HTML output tag should be `div` and have the CSS
-#' class name `shiny-html-output`.
+#' See [renderDataTable()] for data frames that are too big to fit on a single
+#' page.
 #'
 #' @param expr An expression that returns an R object that can be used with
 #'   [xtable::xtable()].
@@ -40,13 +42,28 @@
 #'   (i.e. they either evaluate to `NA` or `NaN`).
 #' @param ... Arguments to be passed through to [xtable::xtable()]
 #'   and [xtable::print.xtable()].
-#' @param env The environment in which to evaluate `expr`.
-#' @param quoted Is `expr` a quoted expression (with `quote()`)?
-#'   This is useful if you want to save an expression in a variable.
+#' @inheritParams renderUI
 #' @param outputArgs A list of arguments to be passed through to the
 #'   implicit call to [tableOutput()] when `renderTable` is
 #'   used in an interactive R Markdown document.
 #' @export
+#' @examples
+#' ## Only run this example in interactive R sessions
+#' if (interactive()) {
+#'   # table example
+#'   shinyApp(
+#'     ui = fluidPage(
+#'       fluidRow(
+#'         column(12,
+#'           tableOutput('table')
+#'         )
+#'       )
+#'     ),
+#'     server = function(input, output) {
+#'       output$table <- renderTable(iris)
+#'     }
+#'   )
+#' }
 renderTable <- function(expr, striped = FALSE, hover = FALSE,
                         bordered = FALSE, spacing = c("s", "xs", "m", "l"),
                         width = "auto", align = NULL,
@@ -55,8 +72,7 @@ renderTable <- function(expr, striped = FALSE, hover = FALSE,
                         env = parent.frame(), quoted = FALSE,
                         outputArgs=list())
 {
-  expr <- get_quosure(expr, env, quoted)
-  func <- quoToFunction(expr, "renderTable")
+  func <- installExprFunction(expr, "func", env, quoted, label = "renderTable")
 
   if (!is.function(spacing)) spacing <- match.arg(spacing)
 

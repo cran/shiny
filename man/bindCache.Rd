@@ -40,7 +40,7 @@ sense, namely:
 
 In the example here, the \code{bindCache()} key consists of \code{input$x} and
 \code{input$y} combined, and the value is \code{input$x * input$y}. In this simple
-example, for any given key, there is only one possible returned value.\if{html}{\out{<div class="NA">}}\preformatted{r <- reactive(\{ input$x * input$y \}) \%>\%
+example, for any given key, there is only one possible returned value.\if{html}{\out{<div class="sourceCode NA">}}\preformatted{r <- reactive(\{ input$x * input$y \}) \%>\%
   bindCache(input$x, input$y)
 }\if{html}{\out{</div>}}
 
@@ -63,7 +63,7 @@ to do some sort of reduction on the data that still captures information
 about whether a value can be retrieved from the cache. For example, if you
 have a large data set with timestamps, it might make sense to extract the
 most recent timestamp and return that. Then, instead of hashing the entire
-data object, the cached reactive only needs to hash the timestamp.\if{html}{\out{<div class="NA">}}\preformatted{r <- reactive(\{ compute(bigdata()) \} \%>\%
+data object, the cached reactive only needs to hash the timestamp.\if{html}{\out{<div class="sourceCode NA">}}\preformatted{r <- reactive(\{ compute(bigdata()) \} \%>\%
   bindCache(\{ extract_most_recent_time(bigdata()) \})
 }\if{html}{\out{</div>}}
 
@@ -105,7 +105,7 @@ cache key is not too expensive.
 Remember that the key is \emph{reactive}, so it is not re-executed every single
 time that someone accesses the cached reactive. It is only re-executed if
 it has been invalidated by one of the reactives it depends on. For
-example, suppose we have this cached reactive:\if{html}{\out{<div class="NA">}}\preformatted{r <- reactive(\{ input$x * input$y \}) \%>\%
+example, suppose we have this cached reactive:\if{html}{\out{<div class="sourceCode NA">}}\preformatted{r <- reactive(\{ input$x * input$y \}) \%>\%
  bindCache(input$x, input$y)
 }\if{html}{\out{</div>}}
 
@@ -236,9 +236,15 @@ reactive must therefore expect it to return a promise.
 \section{Developing render functions for caching}{
 
 
-If you've implemented your own \verb{render*()} function, you may need to
-provide a \code{cacheHint} to \code{\link[=createRenderFunction]{createRenderFunction()}} (or
-\code{\link[htmlwidgets:htmlwidgets-shiny]{htmlwidgets::shinyRenderWidget()}}, if you've authored an htmlwidget) in
+If you've implemented your own \verb{render*()} function, it may just work with
+\code{bindCache()}, but it is possible that you will need to make some
+modifications. These modifications involve helping \code{bindCache()} avoid
+cache collisions, dealing with internal state that may be set by the,
+\code{render} function, and modifying the data as it goes in and comes out of
+the cache.
+
+You may need to provide a \code{cacheHint} to \code{\link[=createRenderFunction]{createRenderFunction()}} (or
+\code{htmlwidgets::shinyRenderWidget()}, if you've authored an htmlwidget) in
 order for \code{bindCache()} to correctly compute a cache key.
 
 The potential problem is a cache collision. Consider the following:\preformatted{output$x1 <- renderText(\{ input$x \}) \%>\% bindCache(input$x)
@@ -252,7 +258,7 @@ this, a \emph{cache hint} is automatically added when \code{\link[=renderText]{r
 \code{\link[=createRenderFunction]{createRenderFunction()}}. The cache hint is used as part of the actual
 cache key, in addition to the one passed to \code{bindCache()} by the user. The
 cache hint can be viewed by calling the internal Shiny function
-\code{extractCacheHint()}:\if{html}{\out{<div class="NA">}}\preformatted{r <- renderText(\{ input$x \})
+\code{extractCacheHint()}:\if{html}{\out{<div class="sourceCode NA">}}\preformatted{r <- renderText(\{ input$x \})
 shiny:::extractCacheHint(r)
 }\if{html}{\out{</div>}}
 
@@ -269,12 +275,12 @@ render function for cache collisions in a real application.
 In some cases, however, the automatic cache hint inference is not
 sufficient, and it is necessary to provide a cache hint. This is true
 for \code{renderPrint()}. Unlike \code{renderText()}, it wraps the user-provided
-expression in another function, before passing it to \code{\link[=markRenderFunction]{markRenderFunction()}}
+expression in another function, before passing it to \code{\link[=createRenderFunction]{createRenderFunction()}}
 (instead of \code{\link[=createRenderFunction]{createRenderFunction()}}). Because the user code is wrapped in
-another function, markRenderFunction() is not able to automatically extract
-the user-provided code and use it in the cache key. Instead, \code{renderPrint}
-calls \code{markRenderFunction()}, it explicitly passes along a \code{cacheHint},
-which includes a label and the original user expression.
+another function, \code{createRenderFunction()} is not able to automatically
+extract the user-provided code and use it in the cache key. Instead,
+\code{renderPrint} calls \code{createRenderFunction()}, it explicitly passes along a
+\code{cacheHint}, which includes a label and the original user expression.
 
 In general, if you need to provide a \code{cacheHint}, it is best practice to
 provide a \code{label} id, the user's \code{expr}, as well as any other arguments
@@ -284,16 +290,28 @@ For \pkg{htmlwidgets}, it will try to automatically infer a cache hint;
 again, you can inspect the cache hint with \code{shiny:::extractCacheHint()} and
 also test it in an application. If you do need to explicitly provide a
 cache hint, pass it to \code{shinyRenderWidget}. For example:\preformatted{renderMyWidget <- function(expr) \{
-  expr <- substitute(expr)
+  q <- rlang::enquo0(expr)
 
-  htmlwidgets::shinyRenderWidget(expr,
+  htmlwidgets::shinyRenderWidget(
+    q,
     myWidgetOutput,
     quoted = TRUE,
-    env = parent.frame(),
-    cacheHint = list(label = "myWidget", userExpr = expr)
+    cacheHint = list(label = "myWidget", userQuo = q)
   )
 \}
 }
+
+If your \code{render} function sets any internal state, you may find it useful
+in your call to \code{\link[=createRenderFunction]{createRenderFunction()}} to use
+the \code{cacheWriteHook} and/or \code{cacheReadHook} parameters. These hooks are
+functions that run just before the object is stored in the cache, and just
+after the object is retrieved from the cache. They can modify the data
+that is stored and retrieved; this can be useful if extra information needs
+to be stored in the cache. They can also be used to modify the state of the
+application; for example, it can call \code{\link[=createWebDependency]{createWebDependency()}} to make
+JS/CSS resources available if the cached object is loaded in a different R
+process. (See the source of \code{htmlwidgets::shinyRenderWidget} for an example
+of this.)
 }
 
 \section{Uncacheable objects}{
@@ -303,8 +321,8 @@ Some render functions cannot be cached, typically because they have side
 effects or modify some external state, and they must re-execute each time
 in order to work properly.
 
-For developers of such code, they should call \code{\link[=createRenderFunction]{createRenderFunction()}} or
-\code{\link[=markRenderFunction]{markRenderFunction()}} with \code{cacheHint = FALSE}.
+For developers of such code, they should call \code{\link[=createRenderFunction]{createRenderFunction()}} (or
+\code{\link[=markRenderFunction]{markRenderFunction()}}) with \code{cacheHint = FALSE}.
 }
 
 \section{Caching with \code{renderPlot()}}{

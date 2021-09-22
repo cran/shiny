@@ -94,14 +94,7 @@ reactlogShow <- function(time = TRUE) {
   check_reactlog()
   reactlog::reactlog_show(reactlog(), time = time)
 }
-#' @describeIn reactlog This function is deprecated. You should use [reactlogShow()]
-#' @export
-# legacy purposes
-showReactLog <- function(time = TRUE) {
-  shinyDeprecated("1.2.0", "showReactLog()", "reactlogShow()")
 
-  reactlogShow(time = time)
-}
 #' @describeIn reactlog Resets the entire reactlog stack.  Useful for debugging and removing all prior reactive history.
 #' @export
 reactlogReset <- function() {
@@ -212,7 +205,7 @@ RLog <- R6Class(
     reset = function() {
       .globals$reactIdCounter <- 0L
 
-      self$logStack <- Stack$new()
+      self$logStack <- fastmap::faststack()
       self$msg <- MessageLogger$new(option = private$msgOption)
 
       # setup dummy and missing react information
@@ -519,7 +512,7 @@ MessageLogger = R6Class(
       return(txt)
     },
     singleLine = function(txt) {
-      gsub("[^\\]\\n", "\\\\n", txt)
+      gsub("([^\\])\\n", "\\1\\\\n", txt)
     },
     valueStr = function(valueStr) {
       paste0(
@@ -560,5 +553,4 @@ MessageLogger = R6Class(
   )
 )
 
-#' @include stack.R
 rLog <- RLog$new("shiny.reactlog", "shiny.reactlog.console")

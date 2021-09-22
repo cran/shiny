@@ -41,12 +41,12 @@ inputHandlers <- Map$new()
 #' })
 #'
 #' ## On the Javascript side, the associated input binding must have a corresponding getType method:
-#' getType: function(el) {
-#'   return "mypackage.validint";
-#' }
+#' # getType: function(el) {
+#' #   return "mypackage.validint";
+#' # }
 #'
 #' }
-#' @seealso [removeInputHandler()]
+#' @seealso [removeInputHandler()] [applyInputHandlers()]
 #' @export
 registerInputHandler <- function(type, fun, force=FALSE){
   if (inputHandlers$containsKey(type) && !force){

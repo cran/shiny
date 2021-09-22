@@ -1,25 +1,24 @@
 #' Slider Input Widget
 #'
-#' Constructs a slider widget to select a numeric value from a range.
+#' Constructs a slider widget to select a number, date, or date-time from a
+#' range.
 #'
 #' @inheritParams textInput
-#' @param min The minimum value (inclusive) that can be selected.
-#' @param max The maximum value (inclusive) that can be selected.
-#' @param value The initial value of the slider. A numeric vector of length one
-#'   will create a regular slider; a numeric vector of length two will create a
-#'   double-ended range slider. A warning will be issued if the value doesn't
-#'   fit between `min` and `max`.
+#' @param min,max The minimum and maximum values (inclusive) that can be
+#'   selected.
+#' @param value The initial value of the slider, either a number, a date
+#'   (class Date), or a date-time (class POSIXt). A length one vector will
+#'   create a regular slider; a length two vector will create a double-ended
+#'   range slider. Must lie between `min` and `max`.
 #' @param step Specifies the interval between each selectable value on the
-#'   slider (if `NULL`, a heuristic is used to determine the step size). If
-#'   the values are dates, `step` is in days; if the values are times
-#'   (POSIXt), `step` is in seconds.
+#'   slider. Either `NULL`, the default, which uses a heuristic to determine the
+#'   step size or a single number. If the values are dates, `step` is in days;
+#'   if the values are date-times, `step` is in seconds.
 #' @param round `TRUE` to round all values to the nearest integer;
 #'   `FALSE` if no rounding is desired; or an integer to round to that
 #'   number of digits (for example, 1 will round to the nearest 10, and -2 will
 #'   round to the nearest .01). Any rounding will be applied after snapping to
 #'   the nearest step.
-#' @param format Deprecated.
-#' @param locale Deprecated.
 #' @param ticks `FALSE` to hide tick marks, `TRUE` to show them
 #'   according to some simple heuristics.
 #' @param animate `TRUE` to show simple animation controls with default
@@ -72,27 +71,14 @@
 #' }
 #'
 #' @section Server value:
-#' A number, or in the case of slider range, a vector of two numbers.
+#' A number, date, or date-time (depending on the class of `value`), or
+#' in the case of slider range, a vector of two numbers/dates/date-times.
 #'
 #' @export
 sliderInput <- function(inputId, label, min, max, value, step = NULL,
-                        round = FALSE, format = NULL, locale = NULL,
-                        ticks = TRUE, animate = FALSE, width = NULL, sep = ",",
-                        pre = NULL, post = NULL, timeFormat = NULL,
-                        timezone = NULL, dragRange = TRUE) {
-  if (!missing(format)) {
-    shinyDeprecated(
-      "0.10.2.2", "sliderInput(format =)",
-      details = "Use `sep`, `pre`, and `post` instead."
-    )
-  }
-  if (!missing(locale)) {
-    shinyDeprecated(
-      "0.10.2.2", "sliderInput(locale =)",
-      details = "Use `sep`, `pre`, and `post` instead."
-    )
-  }
-
+                        round = FALSE, ticks = TRUE, animate = FALSE,
+                        width = NULL, sep = ",", pre = NULL, post = NULL,
+                        timeFormat = NULL, timezone = NULL, dragRange = TRUE) {
   validate_slider_value(min, max, value, "sliderInput")
 
   dataType <- getSliderType(min, max, value)
@@ -215,18 +201,16 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
 }
 
 
-ionRangeSliderVersion <- "2.3.1"
-
 ionRangeSliderDependency <- function() {
   list(
     # ion.rangeSlider also needs normalize.css, which is already included in Bootstrap.
     htmlDependency(
-      "ionrangeslider-javascript", ionRangeSliderVersion,
+      "ionrangeslider-javascript", version_ion_range_slider,
       src = c(href = "shared/ionrangeslider"),
       script = "js/ion.rangeSlider.min.js"
     ),
     htmlDependency(
-      "strftime", "0.9.2",
+      "strftime", version_strftime,
       src = c(href = "shared/strftime"),
       script = "strftime-min.js"
     ),
@@ -238,35 +222,22 @@ ionRangeSliderDependencyCSS <- function(theme) {
   if (!is_bs_theme(theme)) {
     return(htmlDependency(
       "ionrangeslider-css",
-      ionRangeSliderVersion,
+      version_ion_range_slider,
       src = c(href = "shared/ionrangeslider"),
       stylesheet = "css/ion.rangeSlider.css"
     ))
   }
 
-  # Remap some variable names for ionRangeSlider's scss
-  sass_input <- list(
-    list(
-      # The bootswatch materia theme sets $input-bg: transparent;
-      # which is an issue for the slider's handle(s) (#3130)
-      bg = "if(alpha($input-bg)==0, $body-bg, $input-bg)",
-      fg = sprintf(
-        "if(alpha($input-color)==0, $%s, $input-color)",
-        if ("3" %in% bslib::theme_version(theme)) "text-color" else "body-color"
-      ),
-      accent = "$component-active-bg",
-      `font-family` = "$font-family-base"
-    ),
-    sass::sass_file(
-      system.file(package = "shiny", "www/shared/ionrangeslider/scss/shiny.scss")
-    )
-  )
-
   bslib::bs_dependency(
-    input = sass_input,
+    input = list(
+      list(accent = "$component-active-bg"),
+      sass::sass_file(
+        system.file(package = "shiny", "www/shared/ionrangeslider/scss/shiny.scss")
+      )
+    ),
     theme = theme,
     name = "ionRangeSlider",
-    version = ionRangeSliderVersion,
+    version = version_ion_range_slider,
     cache_key_extra = shinyPackageVersion()
   )
 }

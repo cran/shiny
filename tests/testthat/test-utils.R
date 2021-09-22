@@ -1,5 +1,3 @@
-context("utils")
-
 test_that("Private randomness works at startup", {
 
   if (exists(".Random.seed", envir = .GlobalEnv))
@@ -113,7 +111,7 @@ test_that("need() works as expected", {
 test_that("req works", {
   expect_error(req(TRUE, FALSE))
   expect_error(req(TRUE, stop("boom")))
-  expect_equivalent(req(1, TRUE), 1)
+  expect_equal(req(1, TRUE), 1)
 
   # req arguments short circuit when a falsy value is found
   value <- 0
@@ -240,4 +238,16 @@ test_that("dateYMD works", {
     expect_warning(dateYMD(c("2019/11/05", ""))),
     c("2019/11/05", "")
   )
+})
+
+test_that("quoToFunction handles nested quosures", {
+  quo_inner <- local({
+    x <- 1
+    rlang::quo(x)
+  })
+
+  quo_outer <- rlang::quo(!!quo_inner + 1)
+
+  func <- quoToFunction(quo_outer, "foo")
+  expect_identical(func(), 2)
 })
