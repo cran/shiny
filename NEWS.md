@@ -1,5 +1,15 @@
+shiny 1.7.1
+===========
+
+## Bug Fixes
+
+* Closed #3516: Fix regression in repeated calls to `appendTab()` when `navbarMenu()` is already present within a `tabsetPanel()`/`navbarPage()`. (#3518)
+
+* Re-arranged conditions for testthat 1.0.0 compatibility. (#3512)
+
+
 shiny 1.7.0
-================
+===========
 
 ## Full changelog
 

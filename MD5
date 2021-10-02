@@ -1,7 +1,7 @@
-7f9c04a895e81a12a0ec72d51076477c *DESCRIPTION
+14c3e9de454d352c42604fd3c87c12bd *DESCRIPTION
 94d6517cbdbb081f88684d6d71241501 *LICENSE
 f59cfb5c306b39cba2fb0c484fe8cccd *NAMESPACE
-708cc370d54c53d84b40926e8bd3f803 *NEWS.md
+2f58647c589e9a59ef12ee7e10a6567c *NEWS.md
 9b954829ef1c2c120056ca4ae39160b8 *R/app-state.R
 06e2ca35db5d45d3b45b47e7033ad13a *R/app_template.R
 4cc047f6cc0da943781ef513c930914e *R/bind-cache.R
@@ -89,7 +89,7 @@ f056fe7049960f3fd206f921832b0c7e *R/version_selectize.R
 1be117e8b8b6f2f91b3355300cbc85da *R/version_strftime.R
 d6b75f7fb7ca676b8752eef23ec26d52 *R/viewer.R
 aa8cc8bdcd32ae5e0c41c90bb6007876 *README.md
-38fbbf89fac289e799982d9aa45ee1ea *build/shiny.pdf
+a5dcb04e243feca5cf432abae4bf5179 *build/shiny.pdf
 d996b45f5523a08e2174122fb3659d70 *inst/app_template/R/example-module.R
 2a0cd9ce4ffa59512d7332fea9c0d84e *inst/app_template/R/example.R
 6f6e55d3dba6a923f2580bc6f4893968 *inst/app_template/app.R
@@ -306,11 +306,11 @@ f4872960aad32b00eaf32a7e3e4560fd *inst/www/shared/shiny-autoreload.js
 1c01b8619b0d556524d1b826bcef4625 *inst/www/shared/shiny-showcase.css
 56cf087a700f5f086163bb92411fe073 *inst/www/shared/shiny-showcase.js
 2141a6b9994dafcee4b2dc0c13502b16 *inst/www/shared/shiny-testmode.js
-e34755c467df415fcf4886f4ba488eee *inst/www/shared/shiny.js
-c69a15a5316090dfd1447290d184d53f *inst/www/shared/shiny.js.map
+228daa059f5bd79861510227777dae35 *inst/www/shared/shiny.js
+c434c290369deb5f26afb4b78671a4ea *inst/www/shared/shiny.js.map
 b554bfef00a0f2005e1e32d1fb4d19e2 *inst/www/shared/shiny.min.css
-fb56caa6b6d914b83f2941394d2fc53f *inst/www/shared/shiny.min.js
-eec7b2203af9334c7a7dbd2b2c821af8 *inst/www/shared/shiny.min.js.map
+4f3bd15369931b7d7ff01e76e201d483 *inst/www/shared/shiny.min.js
+f109fc5340d47b5bcb667b67bfa3b357 *inst/www/shared/shiny.min.js.map
 1d0e8348a23a2fbac69e264ef7ce6b5a *inst/www/shared/shiny_scss/bootstrap.scss
 38fc4b129a4d628e3ea8a0c971d3df15 *inst/www/shared/shiny_scss/shiny.scss
 d42bccda0accb4e937f79e5bd9540643 *inst/www/shared/showdown/compressed/showdown.js
@@ -587,4 +587,4 @@ dfc108e36dee4d8ae42ecc5d1418a880 *tests/testthat/test-text.R
 b82477c074c6458e63876a5a6ef4852a *tests/testthat/test-timer.R
 dc20b5060bd823814dbbcf3f7dcb9dcf *tests/testthat/test-update-input.R
 ec3a4d3e521dd306a6c5914ecce73774 *tests/testthat/test-url.R
-7649e786cf0327889df0172fd7e6fc9a *tests/testthat/test-utils.R
+0afeb4a3db2a2bff1a07cfae82b43711 *tests/testthat/test-utils.R
