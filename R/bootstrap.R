@@ -374,8 +374,7 @@ collapseSizes <- function(padding) {
 #' @param inverse `TRUE` to use a dark background and light text for the
 #'   navigation bar
 #' @param collapsible `TRUE` to automatically collapse the navigation
-#'   elements into a menu when the width of the browser is less than 940 pixels
-#'   (useful for viewing on smaller touchscreen device)
+#'   elements into an expandable menu on mobile devices or narrow window widths.
 #' @param fluid `TRUE` to use a fluid layout. `FALSE` to use a fixed
 #'   layout.
 #' @param windowTitle the browser window title (as a character string). The
@@ -1200,19 +1199,25 @@ uiOutput <- htmlOutput
 #' @examples
 #' \dontrun{
 #' ui <- fluidPage(
+#'   p("Choose a dataset to download."),
+#'   selectInput("dataset", "Dataset", choices = c("mtcars", "airquality")),
 #'   downloadButton("downloadData", "Download")
 #' )
 #'
 #' server <- function(input, output) {
-#'   # Our dataset
-#'   data <- mtcars
+#'   # The requested dataset
+#'   data <- reactive({
+#'     get(input$dataset)
+#'   })
 #'
 #'   output$downloadData <- downloadHandler(
 #'     filename = function() {
-#'       paste("data-", Sys.Date(), ".csv", sep="")
+#'       # Use the selected dataset as the suggested file name
+#'       paste0(input$dataset, ".csv")
 #'     },
 #'     content = function(file) {
-#'       write.csv(data, file)
+#'       # Write the dataset to the `file` that will be downloaded
+#'       write.csv(data(), file)
 #'     }
 #'   )
 #' }

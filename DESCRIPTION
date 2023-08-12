@@ -1,19 +1,19 @@
 Package: shiny
 Type: Package
 Title: Web Application Framework for R
-Version: 1.7.4.1
+Version: 1.7.5
 Authors@R: c(
-    person("Winston", "Chang", role = c("aut", "cre"), email = "winston@rstudio.com", comment = c(ORCID = "0000-0002-1576-2126")),
-    person("Joe", "Cheng", role = "aut", email = "joe@rstudio.com"),
-    person("JJ", "Allaire", role = "aut", email = "jj@rstudio.com"),
-    person("Carson", "Sievert", role = "aut", email = "carson@rstudio.com", comment = c(ORCID = "0000-0002-4958-2844")),
-    person("Barret", "Schloerke", role = "aut", email = "barret@rstudio.com", comment = c(ORCID = "0000-0001-9986-114X")),
-    person("Yihui", "Xie", role = "aut", email = "yihui@rstudio.com"),
-    person("Jeff", "Allen", role = "aut", email = "jeff@rstudio.com"),
-    person("Jonathan", "McPherson", role = "aut", email = "jonathan@rstudio.com"),
+    person("Winston", "Chang", role = c("aut", "cre"), email = "winston@posit.co", comment = c(ORCID = "0000-0002-1576-2126")),
+    person("Joe", "Cheng", role = "aut", email = "joe@posit.co"),
+    person("JJ", "Allaire", role = "aut", email = "jj@posit.co"),
+    person("Carson", "Sievert", role = "aut", email = "carson@posit.co", comment = c(ORCID = "0000-0002-4958-2844")),
+    person("Barret", "Schloerke", role = "aut", email = "barret@posit.co", comment = c(ORCID = "0000-0001-9986-114X")),
+    person("Yihui", "Xie", role = "aut", email = "yihui@posit.co"),
+    person("Jeff", "Allen", role = "aut"),
+    person("Jonathan", "McPherson", role = "aut", email = "jonathan@posit.co"),
     person("Alan", "Dipert", role = "aut"),
     person("Barbara", "Borges", role = "aut"),
-    person(family = "RStudio", role = "cph"),
+    person("Posit Software, PBC", role = c("cph", "fnd")),
     person(family = "jQuery Foundation", role = "cph",
     comment = "jQuery library and jQuery UI library"),
     person(family = "jQuery contributors", role = c("ctb", "cph"),
@@ -73,12 +73,12 @@ Imports: utils, grDevices, httpuv (>= 1.5.2), mime (>= 0.3), jsonlite
         (>= 0.9.16), xtable, fontawesome (>= 0.4.0), htmltools (>=
         0.5.4), R6 (>= 2.0), sourcetools, later (>= 1.0.0), promises
         (>= 1.1.0), tools, crayon, rlang (>= 0.4.10), fastmap (>=
-        1.1.0), withr, commonmark (>= 1.7), glue (>= 1.3.2), bslib (>=
+        1.1.1), withr, commonmark (>= 1.7), glue (>= 1.3.2), bslib (>=
         0.3.0), cachem, ellipsis, lifecycle (>= 0.2.0)
 Suggests: datasets, Cairo (>= 1.5-5), testthat (>= 3.0.0), knitr (>=
         1.6), markdown, rmarkdown, ggplot2, reactlog (>= 1.0.0),
         magrittr, yaml, future, dygraphs, ragg, showtext, sass
-URL: https://shiny.posit.co/
+URL: https://shiny.posit.co/, https://github.com/rstudio/shiny
 BugReports: https://github.com/rstudio/shiny/issues
 Collate: 'globals.R' 'app-state.R' 'app_template.R' 'bind-cache.R'
         'bind-event.R' 'bookmark-state-local.R' 'bookmark-state.R'
@@ -112,7 +112,7 @@ RdMacros: lifecycle
 Config/testthat/edition: 3
 Config/Needs/check: shinytest2
 NeedsCompilation: no
-Packaged: 2023-07-03 17:48:43 UTC; winston
+Packaged: 2023-08-11 15:54:00 UTC; cpsievert
 Author: Winston Chang [aut, cre] (<https://orcid.org/0000-0002-1576-2126>),
   Joe Cheng [aut],
   JJ Allaire [aut],
@@ -123,7 +123,7 @@ Author: Winston Chang [aut, cre] (<https://orcid.org/0000-0002-1576-2126>),
   Jonathan McPherson [aut],
   Alan Dipert [aut],
   Barbara Borges [aut],
-  RStudio [cph],
+  Posit Software, PBC [cph, fnd],
   jQuery Foundation [cph] (jQuery library and jQuery UI library),
   jQuery contributors [ctb, cph] (jQuery library; authors listed in
     inst/www/shared/jquery-AUTHORS.txt),
@@ -150,6 +150,6 @@ Author: Winston Chang [aut, cre] (<https://orcid.org/0000-0002-1576-2126>),
   John Gruber [ctb, cph] (showdown.js library),
   Ivan Sagalaev [ctb, cph] (highlight.js library),
   R Core Team [ctb, cph] (tar implementation from R)
-Maintainer: Winston Chang <winston@rstudio.com>
+Maintainer: Winston Chang <winston@posit.co>
 Repository: CRAN
-Date/Publication: 2023-07-06 12:30:03 UTC
+Date/Publication: 2023-08-12 17:00:02 UTC
