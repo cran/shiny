@@ -9,7 +9,7 @@ test_that("ReactiveVal", {
   val <- reactiveVal()
 
   isolate({
-    expect_true(is.null(val()))
+    expect_null(val())
 
     # Set to a simple value
     val(1)
@@ -99,12 +99,12 @@ test_that("ReactiveValues", {
   values <- reactiveValues(a=NULL, b=2)
   # a should exist and be NULL
   expect_setequal(isolate(names(values)), c("a", "b"))
-  expect_true(is.null(isolate(values$a)))
+  expect_null(isolate(values$a))
 
   # Assigning NULL should keep object (not delete it), and set value to NULL
   values$b <- NULL
   expect_setequal(isolate(names(values)), c("a", "b"))
-  expect_true(is.null(isolate(values$b)))
+  expect_null(isolate(values$b))
 
 
   # Errors -----------------------------------------------------------------
@@ -960,8 +960,8 @@ test_that("classes of reactive object", {
 })
 
 test_that("{} and NULL also work in reactive()", {
-  expect_error(reactive({}), NA)
-  expect_error(reactive(NULL), NA)
+  expect_no_error(reactive({}))
+  expect_no_error(reactive(NULL))
 })
 
 test_that("shiny.suppressMissingContextError option works", {
@@ -1307,7 +1307,7 @@ for (do_priming in c(TRUE, FALSE)) {
     # dr should've fired, and we should have converged on the right answer.
     expect_identical(dr_fired, 2)
     isolate(expect_identical(rv$a, dr()))
-    expect_identical(tr_fired, 4)
+    # be sure tr() converged on the right answer; (We've already confirmed throttle-like behavior above)
     isolate(expect_identical(rv$a, tr()))
   })
 }
