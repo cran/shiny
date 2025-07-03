@@ -1,4 +1,4 @@
-/*! shiny 1.11.0 | (c) 2012-2025 Posit Software, PBC. | License: GPL-3 | file LICENSE */
+/*! shiny 1.11.1 | (c) 2012-2025 Posit Software, PBC. | License: GPL-3 | file LICENSE */
 "use strict";
 (() => {
   var __create = Object.create;
@@ -5619,8 +5619,21 @@
       const type = binding.getType(el);
       if (type)
         id = id + ":" + type;
-      inputs.setInput(id, value, { priority, binding, el });
+      const normalizedPriority = normalizeEventPriority(priority);
+      inputs.setInput(id, value, { priority: normalizedPriority, binding, el });
     }
+  }
+  function normalizeEventPriority(priority) {
+    if (priority === false || priority === void 0) {
+      return "immediate";
+    }
+    if (priority === true) {
+      return "deferred";
+    }
+    if (typeof priority === "object" && "priority" in priority) {
+      return priority.priority;
+    }
+    return priority;
   }
   var bindingsRegistry = (() => {
     const bindings = /* @__PURE__ */ new Map();
@@ -5735,17 +5748,7 @@ ${duplicateIdMsg}`;
           const thisBinding = binding;
           const thisEl = el;
           return function(priority) {
-            let normalizedPriority;
-            if (priority === true) {
-              normalizedPriority = "deferred";
-            } else if (priority === false) {
-              normalizedPriority = "immediate";
-            } else if (typeof priority === "object" && "priority" in priority) {
-              normalizedPriority = priority.priority;
-            } else {
-              normalizedPriority = priority;
-            }
-            valueChangeCallback(inputs, thisBinding, thisEl, normalizedPriority);
+            valueChangeCallback(inputs, thisBinding, thisEl, priority);
           };
         }();
         binding.subscribe(el, thisCallback);
@@ -7194,7 +7197,7 @@ ${duplicateIdMsg}`;
   // srcts/src/shiny/index.ts
   var ShinyClass = class {
     constructor() {
-      this.version = "1.11.0";
+      this.version = "1.11.1";
       const { inputBindings, fileInputBinding: fileInputBinding2 } = initInputBindings();
       const { outputBindings } = initOutputBindings();
       setFileInputBinding(fileInputBinding2);

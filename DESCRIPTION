@@ -1,7 +1,7 @@
 Package: shiny
 Type: Package
 Title: Web Application Framework for R
-Version: 1.11.0
+Version: 1.11.1
 Authors@R: c(
     person("Winston", "Chang", role = c("aut", "cre"), email = "winston@posit.co", comment = c(ORCID = "0000-0002-1576-2126")),
     person("Joe", "Cheng", role = "aut", email = "joe@posit.co"),
@@ -113,7 +113,7 @@ Encoding: UTF-8
 Config/testthat/edition: 3
 Config/Needs/check: shinytest2
 NeedsCompilation: no
-Packaged: 2025-06-23 21:24:37 UTC; cpsievert
+Packaged: 2025-07-03 01:15:18 UTC; cpsievert
 Author: Winston Chang [aut, cre] (ORCID:
     <https://orcid.org/0000-0002-1576-2126>),
   Joe Cheng [aut],
@@ -154,4 +154,4 @@ Author: Winston Chang [aut, cre] (ORCID:
   R Core Team [ctb, cph] (tar implementation from R)
 Maintainer: Winston Chang <winston@posit.co>
 Repository: CRAN
-Date/Publication: 2025-06-24 17:00:02 UTC
+Date/Publication: 2025-07-03 06:20:02 UTC

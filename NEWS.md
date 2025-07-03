@@ -1,3 +1,13 @@
+# shiny 1.11.1
+
+This is a patch release primarily for addressing the bugs introduced in v1.11.0.
+
+## Bug fixes
+
+* Fixed an issue where `InputBinding` implementations that don't pass a value to their `subscribe` callback were no longer notifying Shiny of input changes. (#4243)
+
+* `updateActionButton()` and `updateActionLink()` once again handle `label` updates correctly. (#4245)
+
 # shiny 1.11.0
 
 ## Improvements

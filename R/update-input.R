@@ -182,22 +182,13 @@ updateActionButton <- function(session = getDefaultReactiveDomain(), inputId, la
   validate_session_object(session)
 
   if (!is.null(icon)) icon <- as.character(validateIcon(icon))
-  message <- dropNulls(list(
-    label = if (!is.null(label)) processDeps(label, session),
-    icon = icon,
-    disabled = disabled
-  ))
+  message <- dropNulls(list(label=label, icon=icon, disabled=disabled))
   session$sendInputMessage(inputId, message)
 }
 #' @rdname updateActionButton
 #' @export
 updateActionLink <- function(session = getDefaultReactiveDomain(), inputId, label = NULL, icon = NULL) {
-  updateActionButton(
-    session,
-    inputId = inputId,
-    label = label,
-    icon = icon
-  )
+  updateActionButton(session, inputId=inputId, label=label, icon=icon)
 }
 
 
