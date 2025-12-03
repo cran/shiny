@@ -26,8 +26,8 @@ causeError <- function(full) {
   suppressMessages(df <- extractStackTrace(conditionStackTrace(cond), full = full))
   df$loc <- cleanLocs(df$loc)
   # Compensate for this test being called from different call sites;
-  # whack the
-  df <- head(df, -sys.nframe())
+  # whack the top n frames off using the `num` frame column
+  df <- df[df$num >= sys.nframe(), ]
   df$num <- df$num - sys.nframe()
   df
 }
@@ -84,11 +84,17 @@ extractStackTrace <- function(calls,
     score[callnames == "..stacktraceon.."] <- 1
     toShow <- (1 + cumsum(score)) > 0 & !(callnames %in% c("..stacktraceon..", "..stacktraceoff..", "..stacktracefloor.."))
 
-    # doTryCatch, tryCatchOne, and tryCatchList are not informative--they're
-    # just internals for tryCatch
-    toShow <- toShow & !(callnames %in% c("doTryCatch", "tryCatchOne", "tryCatchList"))
+    toShow <-
+      toShow &
+      # doTryCatch, tryCatchOne, and tryCatchList are not informative--they're
+      # just internals for tryCatch
+      !(callnames %in% c("doTryCatch", "tryCatchOne", "tryCatchList")) &
+      # doWithOneRestart and withOneRestart are not informative--they're
+      # just internals for withRestarts
+      !(callnames %in% c("withOneRestart", "doWithOneRestart"))
   }
   calls <- calls[toShow]
+
 
   calls <- rev(calls) # Show in traceback() order
   index <- rev(which(toShow))
@@ -118,6 +124,12 @@ dumpTests <- function(df) {
 }
 
 test_that("integration tests", {
+  if (shiny_otel_tracer()$is_enabled()) {
+    announce_snapshot_file(name = "stacks.md")
+
+    skip("Skipping stack trace tests when OpenTelemetry is already enabled")
+  }
+
   # The expected call stack can be changed by other packages (namely, promises).
   # If promises changes its internals, it can break this test on CRAN. Because
   # CRAN package releases are generally not synchronized (that is, promises and
