@@ -1,14 +1,78 @@
+# shiny 1.14.0
+
+## New features
+
+* New `startApp()` runs a Shiny app in non-blocking mode, returning a
+  `ShinyAppHandle` object with `stop()`, `status()`, `url()`, and `result()`
+  methods. When a new app is started, any previously running non-blocking app
+  is automatically stopped. (#4349)
+
+* `session$destroy()` and `session$onDestroy()` are now available on
+  module session proxies to clean up "dangling reactivity" when dynamic
+  module UI is removed. Calling `session$destroy()` invokes all
+  registered `onDestroy()` callbacks for that scope and its descendants,
+  tearing down reactive values, expressions, and observers. A parent can
+  also destroy a child module scope by id with `session$destroy(id)`, so it
+  can tear down a module using the same id it used to insert the UI (#4372).
+
+* `downloadButton()` and `downloadLink()` gain a new `enabled` parameter. The
+  default value, `"auto"`, automatically enables the button/link when the
+  download is ready. To opt-into manual state management (e.g.,
+  `shinyjs::enable()`), set `enabled` to `FALSE` (or `TRUE`). (#4119)
+
+## Improvements
+
+* Output resize/visibility detection now uses native browser observers
+  (`ResizeObserver`, `IntersectionObserver`) instead of relying on jQuery
+  `shown`/`hidden` events and `window.resize`. This makes Shiny's client-side
+  output-info pipeline (image/plot sizing, hidden-state tracking, theme
+  reporting) work automatically in any layout — including CSS-only show/hide,
+  third-party tab components, and non-Bootstrap frameworks — without requiring
+  custom event hooks. This also introduces a `shiny:themechange` event
+  for code that needs to trigger theme clientdata refreshes after changing
+  surrounding visual theme context. (#3682)
+
+* `conditionalPanel()` no longer briefly flashes its contents on app start
+  when the condition is initially `FALSE`. (#3505)
+
+* Updated default HTTP headers for better security. Shiny now sends
+  `X-Content-Type-Options: nosniff` instead of the legacy `X-UA-Compatible`
+  header. This removes outdated Internet Explorer–specific behavior and adds a
+  modern safeguard that prevents browsers from misinterpreting file types.
+  (#4385)
+
+* Removed `InputBinding.dispose()` from the JavaScript `InputBinding` class.
+  This method was never called by Shiny's runtime, so any overrides were dead
+  code. Use `unsubscribe()` for cleanup logic instead. (#4375)
+
+## Bug fixes
+
+* Loading shiny no longer creates `.Random.seed` in the global environment as a
+  side effect. (#4382)
+
+* `need()` now gives a clearer error when called without either a `message` or
+  `label` argument, instead of the cryptic "argument \"label\" is missing, with
+  no default". (thanks @chasemc and @sundrelingam, #2509)
+
+* Clarified `varSelectInput()` documentation to explain that the input
+  returns a symbol for use with tidy evaluation, and fixed a grammatical
+  typo. (#2334)
+
 # shiny 1.13.0
 
 ## New features
 
-* Shiny now supports interactive breakpoints when used with Ark (e.g. in Positron). (#4352)
+* Shiny now supports interactive breakpoints when used with Ark (e.g. in
+  Positron). (#4352)
 
 ## Bug fixes and minor improvements
 
-* Stack traces from render functions (e.g., `renderPlot()`, `renderDataTable()`) now hide internal Shiny rendering pipeline frames, making error messages cleaner and more focused on user code. (#4358)
+* Stack traces from render functions (e.g., `renderPlot()`, `renderDataTable()`)
+  now hide internal Shiny rendering pipeline frames, making error messages
+  cleaner and more focused on user code. (#4358)
 
-* Fixed an issue with `actionLink()` that extended the link underline to whitespace around the text. (#4348)
+* Fixed an issue with `actionLink()` that extended the link underline to
+  whitespace around the text. (#4348)
 
 
 # shiny 1.12.1
@@ -811,7 +875,7 @@ This release features plot caching, an important new tool for improving performa
 
 * Upgrade FontAwesome from 4.7.0 to 5.3.1 and made `icon` tags browsable, which means they will display in a web browser or RStudio viewer by default (#2186). Note that if your application or library depends on FontAwesome directly using custom CSS, you may need to make some or all of the changes recommended in [Upgrade from Version 4](https://docs-v5.fontawesome.com/web/setup/upgrade-from-v4). Font Awesome icons can also now be used in static R Markdown documents.
 
-* Address #174: Added `datesdisabled` and `daysofweekdisabled` as new parameters to `dateInput()`. This resolves #174 and exposes the underlying arguments of [Bootstrap Datepicker](http://bootstrap-datepicker.readthedocs.io/en/latest/options.html#datesdisabled). `datesdisabled` expects a character vector with values in `yyyy/mm/dd` format and `daysofweekdisabled` expects an integer vector with day interger ids (Sunday=0, Saturday=6). The default value for both is `NULL`, which leaves all days selectable. Thanks, @nathancday! (#2147)
+* Address #174: Added `datesdisabled` and `daysofweekdisabled` as new parameters to `dateInput()`. This resolves #174 and exposes the underlying arguments of [Bootstrap Datepicker](https://bootstrap-datepicker.readthedocs.io/en/latest/options.html). `datesdisabled` expects a character vector with values in `yyyy/mm/dd` format and `daysofweekdisabled` expects an integer vector with day interger ids (Sunday=0, Saturday=6). The default value for both is `NULL`, which leaves all days selectable. Thanks, @nathancday! (#2147)
 
 * Support for selecting variables of a data frame with the output values to be used within tidy evaluation.  Added functions: `varSelectInput`, `varSelectizeInput`, `updateVarSelectInput`, `updateVarSelectizeInput`. (#2091)
 
@@ -908,7 +972,7 @@ This is a significant release for Shiny, with a major new feature that was nearl
 
 * Fixed #1600: URL-encoded bookmarking did not work with sliders that had dates or date-times. (#1961)
 
-* Fixed #1962: [File dragging and dropping](https://posit.co/blog/shiny-1-0-4/) broke in the presence of jQuery version 3.0 as introduced by the [rhandsontable](https://jrowen.github.io/rhandsontable/) [htmlwidget](https://www.htmlwidgets.org/). (#2005)
+* Fixed #1962: [File dragging and dropping](https://posit.co/blog/shiny-1-0-4) broke in the presence of jQuery version 3.0 as introduced by the [rhandsontable](https://jrowen.github.io/rhandsontable/) [htmlwidget](https://www.htmlwidgets.org/). (#2005)
 
 * Improved the error handling inside the `addResourcePath()` function, to give end users more informative error messages when the `directoryPath` argument cannot be normalized. This is especially useful for `runtime: shiny_prerendered` Rmd documents, like `learnr` tutorials. (#1968)
 

@@ -129,7 +129,6 @@ makeExtraMethods <- function() {
     "doBookmark",
     "exportTestValues",
     "flushOutput",
-    "getBookmarkExclude",
     "getTestSnapshotUrl",
     "incrementBusyCount",
     "manageHiddenOutputs",
@@ -159,7 +158,6 @@ makeExtraMethods <- function() {
     "sendProgress",
     "sendRemoveTab",
     "sendRemoveUI",
-    "setBookmarkExclude",
     "setShowcase",
     "showProgress",
     "updateQueryString"
@@ -255,6 +253,7 @@ MockShinySession <- R6Class(
       private$flushCBs <- Callbacks$new()
       private$flushedCBs <- Callbacks$new()
       private$endedCBs <- Callbacks$new()
+      private$destroyCallbacksByNs <- Map$new()
 
       private$file_generators <- fastmap()
 
@@ -317,6 +316,30 @@ MockShinySession <- R6Class(
     onEnded = function(sessionEndedCallback) {
       private$endedCBs$register(sessionEndedCallback)
     },
+    #' @description Registers a callback to be invoked when the session scope
+    #'   is destroyed. Returns a function that can be called to unregister the
+    #'   callback.
+    #' @param callback The callback to invoke on destroy.
+    onDestroy = function(callback) {
+      private$getOrCreateDestroyCallbacks(NULL)$register(callback)
+    },
+    #' @description Destroys a module session scope. `namespace` must be a
+    #'   non-empty, non-NA string naming a child module scope. The root scope is
+    #'   the absence of a namespace -- `NULL` (the default) or `character(0)` --
+    #'   and cannot be destroyed this way: calling `destroy()` with no
+    #'   `namespace` on the root session is an error.
+    #' @param namespace Module `namespace` (a non-empty, non-NA string) whose
+    #'   scope should be destroyed.
+    destroy = function(namespace = NULL) {
+      if (length(namespace) == 0) {
+        stop(
+          "`$destroy()` cannot be called on the root session without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to tear down the whole session.",
+          call. = FALSE
+        )
+      }
+      validateNamespace(namespace)
+      self$makeScope(namespace)$destroy()
+    },
 
     #' @description Returns `FALSE` if the session has not yet been closed
     isEnded = function(){ private$was_closed },
@@ -330,7 +353,21 @@ MockShinySession <- R6Class(
       withReactiveDomain(self, {
         private$endedCBs$invoke(onError = printError, ..stacktraceon = TRUE)
       })
+      private$invokeDestroyCallbacks(allowRoot = TRUE)
       private$was_closed <- TRUE
+    },
+
+    #' @description Set input names to be excluded from bookmarking.
+    #' @param names Character vector of input names.
+    setBookmarkExclude = function(names) {
+      private$bookmarkExclude <- names
+    },
+    #' @description Returns the set of input names to be excluded from bookmarking,
+    #'   including those registered by module scopes.
+    getBookmarkExclude = function() {
+      scopedExcludes <- lapply(private$getBookmarkExcludeFuns, function(f) f())
+      scopedExcludes <- unlist(scopedExcludes)
+      c(private$bookmarkExclude, scopedExcludes)
     },
 
     #FIXME: this is wrong. Will need to be more complex.
@@ -517,8 +554,15 @@ MockShinySession <- R6Class(
     #' @param namespace Character vector indicating a namespace.
     #' @return A new session proxy.
     makeScope = function(namespace) {
+      validateNamespace(namespace, allow_root = TRUE)
       ns <- NS(namespace)
-      createSessionProxy(
+      # The scope's own namespace, captured because the proxy `destroy()` below
+      # has a `namespace` parameter that would otherwise shadow it.
+      selfNamespace <- namespace
+
+      bookmarkExclude <- character(0)
+
+      scope <- createSessionProxy(
         self,
         input = .createReactiveValues(private$.input, readonly = TRUE, ns = ns),
         output = structure(.createOutputWriter(self, ns = ns), class = "shinyoutput"),
@@ -526,8 +570,38 @@ MockShinySession <- R6Class(
         ns = function(namespace) ns(namespace),
         setInputs = function(...) {
           self$setInputs(!!!mapNames(ns, rlang::dots_list(..., .homonyms = "error")))
+        },
+        setBookmarkExclude = function(names) {
+          bookmarkExclude <<- names
+        },
+        getBookmarkExclude = function() {
+          bookmarkExclude
+        },
+        onDestroy = function(callback) {
+          private$getOrCreateDestroyCallbacks(namespace)$register(callback)
+        },
+        destroy = function(namespace = NULL) {
+          if (length(namespace) == 0) {
+            # Tear down this scope itself.
+            private$invokeDestroyCallbacks(selfNamespace)
+          } else {
+            # Tear down a named child scope.
+            validateNamespace(namespace)
+            self$makeScope(ns(namespace))$destroy()
+          }
         }
       )
+
+      unsub_exclude <- private$registerBookmarkExclude(function() {
+        excluded <- scope$getBookmarkExclude()
+        ns(excluded)
+      })
+
+      scope$onDestroy(function() {
+        if (is.function(unsub_exclude)) unsub_exclude()
+      })
+
+      scope
     },
     #' @description Set the environment associated with a testServer() call, but
     #'  only if it has not previously been set. This ensures that only the
@@ -643,6 +717,26 @@ MockShinySession <- R6Class(
     flushedCBs = NULL,
     # @field endedCBs `Callbacks` called when session ends.
     endedCBs = NULL,
+    # @field destroyCallbacksByNs Map of namespace -> Callbacks for destroy.
+    destroyCallbacksByNs = NULL,
+    # @field bookmarkExclude Character vector of input names to exclude from bookmarking.
+    bookmarkExclude = character(0),
+    # @field getBookmarkExcludeFuns List of functions returning exclude names (from scopes).
+    getBookmarkExcludeFuns = list(),
+    # @field getBookmarkExcludeFunsNextId Monotonic counter for exclude fun IDs.
+    getBookmarkExcludeFunsNextId = 0L,
+
+    # @description Register a function that returns input names to exclude from
+    #   bookmarking. Returns an unsubscribe function.
+    # @param fun A function that returns a character vector of namespaced names.
+    registerBookmarkExclude = function(fun) {
+      private$getBookmarkExcludeFunsNextId <- private$getBookmarkExcludeFunsNextId + 1L
+      id <- as.character(private$getBookmarkExcludeFunsNextId)
+      private$getBookmarkExcludeFuns[[id]] <- fun
+      function() {
+        private$getBookmarkExcludeFuns[[id]] <- NULL
+      }
+    },
     # @field unhandledErrorCallbacks `Callbacks` called when an unhandled error
     #   occurs.
     unhandledErrorCallbacks = Callbacks$new(),
@@ -664,6 +758,66 @@ MockShinySession <- R6Class(
     # @field currentOutputName Namespaced name of the currently executing
     #'   output, or `NULL` if no output is currently executing.
     currentOutputName = NULL,
+
+    # @description Get or create a Callbacks object for the given namespace.
+    # @param ns The namespace key.
+    # @return A Callbacks object.
+    getOrCreateDestroyCallbacks = function(ns) {
+      # The root scope (length 0: `NULL` or `character(0)`) maps to the sentinel
+      # key; fastmap can't use an empty-string key.
+      if (length(ns) == 0) ns <- destroyNsRoot
+      if (!private$destroyCallbacksByNs$containsKey(ns)) {
+        private$destroyCallbacksByNs$set(ns, Callbacks$new())
+      }
+      private$destroyCallbacksByNs$get(ns)
+    },
+
+    # @description Invoke destroy callbacks for the given namespace
+    #   and all child namespaces, deepest-first. The root (length 0: `NULL` or
+    #   `character(0)`) may only be torn down with `allowRoot = TRUE` (via `close()`).
+    # @param namespace The namespace to match (length 0 is the root).
+    # @param allowRoot Whether tearing down the root scope is permitted.
+    invokeDestroyCallbacks = function(namespace = NULL, allowRoot = FALSE) {
+      isRoot <- length(namespace) == 0
+      # The root scope can only be torn down via `close()` (allowRoot = TRUE).
+      if (isRoot && !allowRoot) {
+        stop(
+          "`$destroy()` cannot be called on the root session without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to tear down the whole session.",
+          call. = FALSE
+        )
+      }
+
+      nsPrefix <- namespace
+      allNs <- private$destroyCallbacksByNs$keys()
+
+      if (!isRoot) {
+        nsPrefixWithSep <- paste0(nsPrefix, ns.sep)
+        matching <- allNs[allNs == nsPrefix | startsWith(allNs, nsPrefixWithSep)]
+      } else {
+        matching <- allNs
+      }
+
+      if (length(matching) > 0L) {
+        # Sort deepest-first (most separators first); root sentinel always last
+        depths <- nchar(gsub(paste0("[^", ns.sep, "]"), "", matching))
+        isRootSentinel <- matching == destroyNsRoot
+        matching <- matching[order(-depths, isRootSentinel, matching)]
+
+        for (ns in matching) {
+          cbs <- private$destroyCallbacksByNs$get(ns)
+          if (!is.null(cbs)) {
+            cbs$invoke(onError = printError)
+          }
+          private$destroyCallbacksByNs$remove(ns)
+        }
+      }
+
+      # Clean up namespaced inputs
+      if (!isRoot) {
+        nsPrefixWithSep <- paste0(nsPrefix, ns.sep)
+        private$.input$destroyByPrefix(nsPrefixWithSep)
+      }
+    },
 
     # @description Writes a downloadable file to disk. If the `content` function
     #   associated with a download handler does not write a file, an error is
