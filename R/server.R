@@ -122,7 +122,7 @@ decodeMessage <- function(data) {
   }
 
   mainMessage <- decodeMessage(parts[[1]])
-  mainMessage$blobs <- parts[2:length(parts)]
+  mainMessage$blobs <- parts[-1]
   return(mainMessage)
 }
 
@@ -202,6 +202,12 @@ createAppHandlers <- function(httpHandlers, serverFuncSource) {
             return()
 
           msg <- decodeMessage(msg)
+
+          # `switch()` below picks a branch by position when given a number
+          # (`1` would rerun `init`), so the method must be a single string.
+          if (!is.character(msg$method) || length(msg$method) != 1L) {
+            stop("Invalid message: `method` must be a single string.")
+          }
 
           # Set up a restore context from .clientdata_url_search before
           # handling all the input values, because the restore context may be
@@ -456,17 +462,19 @@ startHttpuvApp <- function(appObj, port, host, quiet) {
   )
 
   if (is.numeric(port) || is.integer(port)) {
+    # `startServer()` binds the socket synchronously, so only announce the URL
+    # after it returns. Otherwise the "Listening on" line (used as a readiness
+    # signal by shinytest2 and log watchers) can advertise a port that is not
+    # yet accepting connections (#4400).
+    server <- startServer(host, port, httpuvApp)
     if (!quiet) {
       hostString <- host
       if (httpuv::ipFamily(host) == 6L)
         hostString <- paste0("[", hostString, "]")
       message('\n', 'Listening on http://', hostString, ':', port)
     }
-    return(startServer(host, port, httpuvApp))
+    return(server)
   } else if (is.character(port)) {
-    if (!quiet) {
-      message('\n', 'Listening on domain socket ', port)
-    }
     mask <- attr(port, 'mask')
     if (is.null(mask)) {
       stop("`port` is not a valid domain socket (missing `mask` attribute). ",
@@ -474,7 +482,11 @@ startHttpuvApp <- function(appObj, port, host, quiet) {
            "configuration (and not domain sockets), then `port` must ",
            "be numeric, not a string.")
     }
-    return(startPipeServer(port, mask, httpuvApp))
+    server <- startPipeServer(port, mask, httpuvApp)
+    if (!quiet) {
+      message('\n', 'Listening on domain socket ', port)
+    }
+    return(server)
   }
 }
 

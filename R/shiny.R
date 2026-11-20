@@ -152,17 +152,25 @@ workerId <- local({
 #'   after `session$onEnded()` callbacks. Note, `session$destroy()` is not
 #'   allowed for root sessions. For module session proxies, callbacks are
 #'   invoked when `session$destroy()` is called.
-#' }
-#' \item{destroy(id = NULL)}{
-#'   Destroys a module session scope (and any descendant scopes) by invoking
-#'   all registered `onDestroy()` callbacks. This includes cleaning up all
-#'   reactive values, observers, and reactive expressions created within
-#'   that scope (and any descendant scopes).
 #'
-#'   Called with no `id` on a module session proxy (e.g. the `session`
+#'   Closing a session is not the same as destroying a scope. `destroy()`
+#'   tears down the scope's reactive values and expressions, so reading one
+#'   afterwards is an error. When a session closes, they are instead left
+#'   readable at their last value and reclaimed by garbage collection, so
+#'   async work that outlives the connection (for example an [ExtendedTask]
+#'   that settles after the user refreshes the page) does not error.
+#' }
+#' \item{destroy(namespace = NULL)}{
+#'   Destroys a module session scope (and any descendant scopes) by invoking
+#'   all registered `onDestroy()` callbacks. An explicit `destroy()` cleans up
+#'   all reactive values, observers, and reactive expressions created within
+#'   that scope (and any descendant scopes). A session *close* is gentler with
+#'   reactives -- see `onDestroy()` above.
+#'
+#'   Called with no `namespace` on a module session proxy (e.g. the `session`
 #'   inside [moduleServer()]), it destroys that module's own scope. Called
-#'   with an `id`, it destroys the child module scope of that `id` — this is
-#'   how a parent tears down a module it added, using the same id it used to
+#'   with a `namespace`, it destroys the child module scope of that `namespace` — this is
+#'   how a parent tears down a module it added, using the same namespace it used to
 #'   insert the UI:
 #'
 #'   ```
@@ -170,8 +178,10 @@ workerId <- local({
 #'   session$destroy("editor")
 #'   ```
 #'
-#'   On the root session an `id` is required; `session$destroy()` with no
-#'   `id` is an error (the root session is torn down via `close()`).
+#'   On the root session a `namespace` is required; `session$destroy()` with no
+#'   `namespace` is an error. The root session ends via `close()`, which is not
+#'   a destroy: observers are torn down, but reactive values and expressions
+#'   are left readable at their last value.
 #' }
 #' \item{onEnded(callback)}{
 #'   Synonym for `onSessionEnded`.
@@ -322,11 +332,11 @@ workerId <- local({
 #' dynamically — without it, destroying one module could leak callbacks or
 #' invalidate reactive objects that belong to another part of the app.
 #'
-#' The parent that inserted the module's UI under an `id` can tear it down by
-#' that same `id`, without the module having to hand anything back:
+#' The parent that inserted the module's UI under a `namespace` can tear it down by
+#' that same `namespace`, without the module having to hand anything back:
 #'
 #' ```
-#' # In the parent server: insert, then later remove and destroy by id
+#' # In the parent server: insert, then later remove and destroy by namespace
 #' observeEvent(input$add, {
 #'   insertUI("#container", ui = myModuleUI("editor"))
 #'   myModuleServer("editor")
@@ -337,16 +347,16 @@ workerId <- local({
 #' })
 #' ```
 #'
-#' Inside the module, `session$destroy()` (with no `id`) destroys the module's
+#' Inside the module, `session$destroy()` (with no `namespace`) destroys the module's
 #' own scope. A module can expose this as a handle for callers that need to
 #' trigger teardown from somewhere that doesn't have the parent session or
-#' `id` (see the data ownership section below for an example).
+#' `namespace` (see the data ownership section below for an example).
 #'
 #' @section Module data ownership:
 #' The key rule: **data that must outlive a module should live outside it.**
-#' A reactive value created inside a module is destroyed with the module.
-#' A reactive value created in the caller's scope and passed in survives
-#' destruction.
+#' A reactive value created inside a module is destroyed when that module's
+#' scope is destroyed with `session$destroy()`. A reactive value created in the
+#' caller's scope and passed in survives destruction.
 #'
 #' Returning a reactive value from a module works when the module lives for
 #' the entire session. However, if you plan to call `session$destroy()`, the
@@ -445,14 +455,18 @@ ns.sep <- "-"
 # additionally guards against).
 destroyNsRoot <- "..root"
 
-# Validate a module `namespace`. A namespace must be a single, non-empty,
-# non-NA string and may not be the reserved sentinel. When `allow_root = TRUE`
-# (e.g. `makeScope()`), the root scope -- a length-0 `NULL` / `character(0)` --
-# is also accepted; the destroy entry points pass `allow_root = FALSE` because a
-# child scope must be named explicitly.
+# Validate a module `namespace` and return it. A character vector (as accepted
+# by `NS()`) is first joined with `ns.sep`. A namespace must be a single,
+# non-empty, non-NA string and may not be the reserved sentinel. When
+# `allow_root = TRUE` (e.g. `makeScope()`), the root scope -- a length-0
+# `NULL` / `character(0)` -- is also accepted; the destroy entry points pass
+# `allow_root = FALSE` because a child scope must be named explicitly.
 validateNamespace <- function(namespace, allow_root = FALSE) {
   if (allow_root && length(namespace) == 0) {
     return(invisible(namespace))
+  }
+  if (is.character(namespace) && length(namespace) > 1L && !anyNA(namespace)) {
+    namespace <- paste(namespace, collapse = ns.sep)
   }
   if (!is.character(namespace) || length(namespace) != 1L || is.na(namespace) || !nzchar(namespace)) {
     stop(
@@ -470,6 +484,36 @@ validateNamespace <- function(namespace, allow_root = FALSE) {
     )
   }
   invisible(namespace)
+}
+
+# Invoke and remove the destroy callbacks in `callbacksByNs` (a fastmap of
+# namespace -> Callbacks) for `namespace` and its children, or for all
+# namespaces when `namespace` is the root (length 0). Deepest namespaces run
+# first; the root sentinel runs last. Shared by `ShinySession` and
+# `MockShinySession`; each then cleans up its own per-namespace state.
+runDestroyCallbacks <- function(callbacksByNs, namespace) {
+  matching <- callbacksByNs$keys()
+  if (length(namespace) > 0) {
+    matching <- matching[
+      matching == namespace | startsWith(matching, paste0(namespace, ns.sep))
+    ]
+  }
+  if (length(matching) == 0L) {
+    return(invisible())
+  }
+
+  depths <- nchar(gsub(paste0("[^", ns.sep, "]"), "", matching))
+  isRootSentinel <- matching == destroyNsRoot
+  matching <- matching[order(-depths, isRootSentinel, matching)]
+
+  for (ns in matching) {
+    cbs <- callbacksByNs$get(ns)
+    if (!is.null(cbs)) {
+      cbs$invoke(onError = printError)
+    }
+    callbacksByNs$remove(ns)
+  }
+  invisible()
 }
 
 #' @include utils.R
@@ -846,39 +890,17 @@ ShinySession <- R6Class(
     },
     invokeDestroyCallbacks = function(namespace = NULL, allowRoot = FALSE) {
       isRoot <- length(namespace) == 0
-      # The root scope can only be torn down via `close()` (allowRoot = TRUE).
+      # Root-scope destroy callbacks are only dispatched from `close()`
+      # (allowRoot = TRUE), where the reactives themselves are left intact.
       if (isRoot && !allowRoot) {
         stop(
-          "`$destroy()` cannot be called on the root ShinySession without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to tear down the whole session.",
+          "`$destroy()` cannot be called on the root ShinySession without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to end the whole session (which is not a destroy: reactive values and expressions stay readable).",
           call. = FALSE
         )
       }
 
       nsPrefix <- namespace
-      allNs <- private$destroyCallbacksByNs$keys()
-
-      if (!isRoot) {
-        nsPrefixWithSep <- paste0(nsPrefix, ns.sep)
-        # Match the namespace itself and any children
-        matching <- allNs[allNs == nsPrefix | startsWith(allNs, nsPrefixWithSep)]
-      } else {
-        matching <- allNs
-      }
-
-      if (length(matching) > 0L) {
-        # Sort deepest-first (most separators first); root sentinel always last
-        depths <- nchar(gsub(paste0("[^", ns.sep, "]"), "", matching))
-        isRootSentinel <- matching == destroyNsRoot
-        matching <- matching[order(-depths, isRootSentinel, matching)]
-
-        for (ns in matching) {
-          cbs <- private$destroyCallbacksByNs$get(ns)
-          if (!is.null(cbs)) {
-            cbs$invoke(onError = printError)
-          }
-          private$destroyCallbacksByNs$remove(ns)
-        }
-      }
+      runDestroyCallbacks(private$destroyCallbacksByNs, nsPrefix)
 
       # Clean up inputs and clientData for matched namespaces
       if (!isRoot) {
@@ -1036,7 +1058,7 @@ ShinySession <- R6Class(
       self
     },
     makeScope = function(namespace) {
-      validateNamespace(namespace, allow_root = TRUE)
+      namespace <- validateNamespace(namespace, allow_root = TRUE)
       ns <- NS(namespace)
       # The scope's own namespace, captured because the proxy `destroy()` below
       # has a `namespace` parameter that would otherwise shadow it.
@@ -1118,7 +1140,7 @@ ShinySession <- R6Class(
             private$invokeDestroyCallbacks(selfNamespace)
           } else {
             # Tear down a named child scope.
-            validateNamespace(namespace)
+            namespace <- validateNamespace(namespace)
             self$makeScope(ns(namespace))$destroy()
           }
         }
@@ -1316,10 +1338,16 @@ ShinySession <- R6Class(
     },
     onDestroy = function(callback) {
       "Registers a callback to be invoked when the session scope is destroyed
-      via `destroy()`. Returns a function that can be called to
-      unregister the callback. For module sessions, use this to register
-      cleanup logic that runs when the module's UI is removed and
-      `session$destroy()` is called."
+      via `destroy()`, and when the session itself closes. Returns a function
+      that can be called to unregister the callback. For module sessions, use
+      this to register cleanup logic that runs when the module's UI is removed
+      and `session$destroy()` is called.
+
+      Note that closing a session is not the same as destroying a scope. An
+      explicit `destroy()` tears down the scope's reactive values and
+      expressions, so reading one afterwards is an error. On close, they are
+      left readable at their last value and reclaimed by garbage collection,
+      so async work that outlives the connection does not error."
       private$getOrCreateDestroyCallbacks(NULL)$register(callback)
     },
     destroy = function(namespace = NULL) {
@@ -1329,14 +1357,16 @@ ShinySession <- R6Class(
       tears that scope down. The root scope is the absence of a namespace --
       `NULL` (the default) or `character(0)` -- and cannot be destroyed this
       way: calling `destroy()` with no `namespace` on the root session is an
-      error, since the root session is torn down via `close()`."
+      error. The root session ends via `close()`, which is not a destroy --
+      observers are torn down, but reactive values and expressions are left
+      readable at their last value."
       if (length(namespace) == 0) {
         stop(
-          "`$destroy()` cannot be called on the root ShinySession without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to tear down the whole session.",
+          "`$destroy()` cannot be called on the root ShinySession without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to end the whole session (which is not a destroy: reactive values and expressions stay readable).",
           call. = FALSE
         )
       }
-      validateNamespace(namespace)
+      namespace <- validateNamespace(namespace)
       self$makeScope(namespace)$destroy()
     },
     onInputReceived = function(callback) {
@@ -1770,9 +1800,10 @@ ShinySession <- R6Class(
 
     dispatch = function(msg) {
       method <- paste('@', msg$method, sep='')
-      func <- try(self[[method]], silent = TRUE)
-      if (inherits(func, 'try-error')) {
+      func <- self[[method]]
+      if (!is.function(func)) {
         private$sendErrorResponse(msg, paste('Unknown method', msg$method))
+        return()
       }
 
       value <- try(do.call(func, as.list(append(msg$args, msg$blobs))),
@@ -2835,7 +2866,7 @@ flushPendingSessions <- function() {
     tryCatch(
       shinysession$flushOutput(),
 
-      stop = function(e) {
+      error = function(e) {
         # If there are any uncaught errors that bubbled up to here, close the
         # session.
         shinysession$close()

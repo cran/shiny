@@ -316,9 +316,14 @@ MockShinySession <- R6Class(
     onEnded = function(sessionEndedCallback) {
       private$endedCBs$register(sessionEndedCallback)
     },
-    #' @description Registers a callback to be invoked when the session scope
-    #'   is destroyed. Returns a function that can be called to unregister the
-    #'   callback.
+    #' @description Registers a callback to be invoked when the session scope is
+    #'   destroyed via `destroy()`, and when the session itself closes. Returns a
+    #'   function that can be called to unregister the callback.
+    #'
+    #'   Note that closing a session is not the same as destroying a scope. An
+    #'   explicit `destroy()` tears down the scope's reactive values and
+    #'   expressions, so reading one afterwards is an error. On close, they are
+    #'   left readable at their last value, matching `ShinySession`.
     #' @param callback The callback to invoke on destroy.
     onDestroy = function(callback) {
       private$getOrCreateDestroyCallbacks(NULL)$register(callback)
@@ -333,11 +338,11 @@ MockShinySession <- R6Class(
     destroy = function(namespace = NULL) {
       if (length(namespace) == 0) {
         stop(
-          "`$destroy()` cannot be called on the root session without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to tear down the whole session.",
+          "`$destroy()` cannot be called on the root session without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to end the whole session (which is not a destroy: reactive values and expressions stay readable).",
           call. = FALSE
         )
       }
-      validateNamespace(namespace)
+      namespace <- validateNamespace(namespace)
       self$makeScope(namespace)$destroy()
     },
 
@@ -347,6 +352,9 @@ MockShinySession <- R6Class(
     isClosed = function(){ private$was_closed },
     #' @description Closes the session
     close = function(){
+      # Mark closed first, mirroring `ShinySession$wsClosed()`: teardown needs
+      # to be able to tell a whole-session close from an explicit `destroy()`.
+      private$was_closed <- TRUE
       for (output in private$output) {
         output$suspend()
       }
@@ -354,7 +362,6 @@ MockShinySession <- R6Class(
         private$endedCBs$invoke(onError = printError, ..stacktraceon = TRUE)
       })
       private$invokeDestroyCallbacks(allowRoot = TRUE)
-      private$was_closed <- TRUE
     },
 
     #' @description Set input names to be excluded from bookmarking.
@@ -554,7 +561,7 @@ MockShinySession <- R6Class(
     #' @param namespace Character vector indicating a namespace.
     #' @return A new session proxy.
     makeScope = function(namespace) {
-      validateNamespace(namespace, allow_root = TRUE)
+      namespace <- validateNamespace(namespace, allow_root = TRUE)
       ns <- NS(namespace)
       # The scope's own namespace, captured because the proxy `destroy()` below
       # has a `namespace` parameter that would otherwise shadow it.
@@ -586,7 +593,7 @@ MockShinySession <- R6Class(
             private$invokeDestroyCallbacks(selfNamespace)
           } else {
             # Tear down a named child scope.
-            validateNamespace(namespace)
+            namespace <- validateNamespace(namespace)
             self$makeScope(ns(namespace))$destroy()
           }
         }
@@ -779,43 +786,29 @@ MockShinySession <- R6Class(
     # @param allowRoot Whether tearing down the root scope is permitted.
     invokeDestroyCallbacks = function(namespace = NULL, allowRoot = FALSE) {
       isRoot <- length(namespace) == 0
-      # The root scope can only be torn down via `close()` (allowRoot = TRUE).
+      # Root-scope destroy callbacks are only dispatched from `close()`
+      # (allowRoot = TRUE), where the reactives themselves are left intact.
       if (isRoot && !allowRoot) {
         stop(
-          "`$destroy()` cannot be called on the root session without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to tear down the whole session.",
+          "`$destroy()` cannot be called on the root session without a `namespace`. Pass a module `namespace` to tear down that scope (e.g. `session$destroy(\"my_module\")`), or call `close()` to end the whole session (which is not a destroy: reactive values and expressions stay readable).",
           call. = FALSE
         )
       }
 
       nsPrefix <- namespace
-      allNs <- private$destroyCallbacksByNs$keys()
+      runDestroyCallbacks(private$destroyCallbacksByNs, nsPrefix)
 
-      if (!isRoot) {
-        nsPrefixWithSep <- paste0(nsPrefix, ns.sep)
-        matching <- allNs[allNs == nsPrefix | startsWith(allNs, nsPrefixWithSep)]
-      } else {
-        matching <- allNs
-      }
-
-      if (length(matching) > 0L) {
-        # Sort deepest-first (most separators first); root sentinel always last
-        depths <- nchar(gsub(paste0("[^", ns.sep, "]"), "", matching))
-        isRootSentinel <- matching == destroyNsRoot
-        matching <- matching[order(-depths, isRootSentinel, matching)]
-
-        for (ns in matching) {
-          cbs <- private$destroyCallbacksByNs$get(ns)
-          if (!is.null(cbs)) {
-            cbs$invoke(onError = printError)
-          }
-          private$destroyCallbacksByNs$remove(ns)
-        }
-      }
-
-      # Clean up namespaced inputs
+      # Clean up namespaced inputs, outputs and downloads. The mock has no
+      # reactive clientData or file routes to clean up.
       if (!isRoot) {
         nsPrefixWithSep <- paste0(nsPrefix, ns.sep)
         private$.input$destroyByPrefix(nsPrefixWithSep)
+        outNames <- rlang::names2(private$outs)
+        private$outs[startsWith(outNames, nsPrefixWithSep)] <- NULL
+        fileNames <- private$file_generators$keys()
+        private$file_generators$remove(
+          fileNames[startsWith(fileNames, self$ns(nsPrefixWithSep))]
+        )
       }
     },
 
@@ -837,7 +830,7 @@ MockShinySession <- R6Class(
       file <- file.path(tmpd, download$filename())
       download$content(file)
       if (!file.exists(file))
-        error("downloadHandler for ", name, " did not write a file.")
+        stop("downloadHandler for ", name, " did not write a file.", call. = FALSE)
       file
     },
 

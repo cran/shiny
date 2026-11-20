@@ -2,8 +2,8 @@ skip_if_not_shinytest2()
 skip_if_not_installed("shinyjs")
 library(shinytest2)
 
-# library(shiny) must be called explicitly inside the function so that
-# shinytest2's library shim loads the dev package via pkgload::load_all().
+# Call library(shiny) inside the function. shinytest2's library() shim then
+# loads the dev package via pkgload::load_all() (see memory-bank/testing.md).
 app <- launch_test_app(function() {
   library(shiny)
   shinyjs_disabled <- getFromNamespace("disabled", "shinyjs")

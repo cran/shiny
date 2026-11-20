@@ -1,3 +1,89 @@
+# shiny 1.15.0
+
+## New features
+
+* shiny now ships an agent skill in `inst/skills/shiny-for-r/` that follows
+  the [Agent Skills](https://agentskills.io) convention. Installing this skill
+  can be done via `btw::btw_skill_install_package("shiny")`, which can install
+  it for a project (the default) or at the user level (`scope = "user"`).
+  Coding agents that use [btw](https://posit-dev.github.io/btw/) automatically
+  find this skill when shiny is attached (#4427).
+
+## Changes
+
+* `{watcher}` is now a required dependency and is always used for autoreload
+  file watching, so it no longer needs to be installed separately. The old
+  polling-based file watcher is removed (#4403).
+
+* A request to an unknown session method now gets an `Unknown method` error
+  response instead of a `do.call()` error. A websocket message whose `method`
+  is not a single string is now rejected (#4445).
+
+## Improvements
+
+* `ExtendedTask`'s OpenTelemetry "add to queue" log now has its message, and
+  invocations that were queued behind a running one now get their own span
+  (#4448, #4449).
+
+* `runApp()` now prints its `Listening on http://…` message only after the
+  listening socket is bound, so the announced URL always accepts connections
+  (@nbenn, #4400).
+
+* `session$destroy()`'s parameter is now documented as `namespace`, to match
+  its real name (#4419).
+
+* `testServer()` now gives a clear error when a `downloadHandler()`'s
+  `content` writes no file, instead of `could not find function "error"`
+  (#4450).
+
+* `testServer()` now gives a clear error when passed a function that is
+  neither a server nor a module server, instead of
+  `missing value where TRUE/FALSE needed` (#4452).
+
+## Bug fixes
+
+* Closing a session now leaves its reactives readable at their last value, so
+  an `ExtendedTask`, promise, or `later()` callback that finishes after the
+  page is refreshed no longer errors (#4420, #4421, #4423).
+
+* Reconnecting to a session now renders the first output value that the new
+  session sends, and no longer throws
+  `the output is in an unexpected state of: 'value'` errors in the browser
+  console. Before, the client kept the old session's output state across the
+  reconnect, so outputs could keep showing the old session's results
+  (#4424, #4425).
+
+* A session whose outputs throw an unhandled error while being flushed is now
+  closed, instead of the error escaping the server loop (#4444).
+
+* A binary websocket message that has only a JSON part now passes only its
+  own arguments to the requested method, instead of two extra `NULL`/JSON
+  arguments (#4446).
+
+* `callModule()`, `moduleServer()`, `testServer()` and `session$destroy()`
+  work again with module ids that are character vectors, such as
+  `c("a", "b")`. Since 1.14.0 they failed with ``Invalid `namespace` ``. The
+  parts are joined the same way `NS()` joins them, so `c("a", "b")` becomes
+  `"a-b"` (#4447).
+
+* `dateInput()`'s `datesdisabled` now works when `format` is not the default
+  `yyyy-mm-dd`. The dates are now converted to real dates on the client, the
+  same way `min` and `max` already are, instead of being parsed by
+  bootstrap-datepicker with the display format (#3251, #4281, #4434).
+
+* `dateInput(language =)` now loads its locale with
+  `options(shiny.minified = FALSE)`, instead of falling back to English. The
+  datepicker and `sliderInput()` now follow `devmode()`'s `shiny.minified`
+  setting like the rest of shiny, so in `devmode()` a page with a
+  `dateInput()` loads every datepicker locale file (#4461).
+
+* `invalidateLater()`, `reactivePoll()` and `reactiveTimer()` work again with a
+  custom session object that has no `onDestroy()` method. Since 1.14.0 they
+  failed with `attempt to apply non-function` (#4485).
+
+* `testServer()` now removes a module's outputs and downloads when
+  `session$destroy(id)` is called (#4451).
+
 # shiny 1.14.0
 
 ## New features
@@ -1873,7 +1959,7 @@ Along with the release of Shiny 0.11, we've packaged up some Bootstrap 3 themes 
 
 * Added `type` parameter to `tabsetPanel()` to enable the use of pill style tabs in addition to the standard ones.
 
-* Added `position` paramter to `tabsetPanel()` to enable positioning of tabs above, below, left, or right of tab content.
+* Added `position` parameter to `tabsetPanel()` to enable positioning of tabs above, below, left, or right of tab content.
 
 * Added `fluidPage()` and `fixedPage()` functions as well as related row and column layout functions for creating arbitrary bootstrap grid layouts.
 

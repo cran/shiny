@@ -1,4 +1,4 @@
-/*! shiny 1.14.0 | (c) 2012-2026 Posit Software, PBC. | License: MIT + file LICENSE */
+/*! shiny 1.15.0 | (c) 2012-2026 Posit Software, PBC. | License: MIT + file LICENSE */
 "use strict";
 (() => {
   var __create = Object.create;
@@ -1386,6 +1386,9 @@
     }
     initialize(el) {
       const $input = (0, import_jquery10.default)(el).find("input");
+      if ($input.data("dates-disabled") !== void 0) {
+        this._setDatesDisabled($input[0], $input.data("dates-disabled"));
+      }
       let date = $input.data("initial-date");
       if (date === void 0 || date === null) {
         date = this._floorDateTime(this._dateAsUTC(/* @__PURE__ */ new Date()));
@@ -1448,6 +1451,16 @@
       } else {
         (0, import_jquery10.default)(el).bsDatepicker("setUTCDate", curValue);
       }
+    }
+    // Given an array of unambiguous date strings and/or Date objects, disable
+    // those dates on the datepicker. null/undefined entries are dropped.
+    _setDatesDisabled(el, dates) {
+      if (!dates) {
+        (0, import_jquery10.default)(el).bsDatepicker("setDatesDisabled", []);
+        return;
+      }
+      const parsedDates = dates.map((date) => date == null ? null : this._newDate(date)).filter((date) => date !== null);
+      (0, import_jquery10.default)(el).bsDatepicker("setDatesDisabled", parsedDates);
     }
     // Given a date string of format yyyy-mm-dd, return a Date object with
     // that date at 12AM UTC.
@@ -6139,6 +6152,16 @@ ${duplicateIdMsg}`;
       this.changedOutputs = /* @__PURE__ */ new Map();
       return result;
     }
+    // Forget everything we know about output state.
+    //
+    // Call this when the client is about to start a new session on the server
+    // (i.e., on reconnect). The new session restarts every output's lifecycle at
+    // INITIAL, so state left over from the previous session would make the next
+    // `recalculating` message look like an illegal transition.
+    reset() {
+      this.outputStates = /* @__PURE__ */ new Map();
+      this.changedOutputs = /* @__PURE__ */ new Map();
+    }
     // Returns whether the output is recalculating or not.
     isRecalculating(name) {
       const state = __privateMethod(this, _OutputProgressReporter_instances, getState_fn).call(this, name);
@@ -6492,6 +6515,7 @@ ${duplicateIdMsg}`;
       clearTimeout(this.scheduledReconnect);
       if (this.isConnected())
         throw "Attempted to reconnect, but already connected.";
+      this.$outputProgress.reset();
       this.$socket = this.createSocket();
       this.$initialInput = import_jquery39.default.extend({}, this.$inputValues);
       this.$updateConditionals();
@@ -7271,7 +7295,7 @@ ${duplicateIdMsg}`;
   // srcts/src/shiny/index.ts
   var ShinyClass = class {
     constructor() {
-      this.version = "1.14.0";
+      this.version = "1.15.0";
       const { inputBindings, fileInputBinding: fileInputBinding2 } = initInputBindings();
       const { outputBindings } = initOutputBindings();
       setFileInputBinding(fileInputBinding2);
